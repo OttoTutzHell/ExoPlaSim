@@ -170,7 +170,7 @@ How far to trust it:
 - The sign is physical and published for cool stars (lower albedo, weaker substellar cloud, earlier moist greenhouse). The size is uncertain and biased high by the in-band approximation.
 - 1,800 W/m² around a ~2,900 K star is, from memory of the Kopparapu et al. (2016, 2017) inner-edge results, close to where three-dimensional models put the moist-greenhouse transition for tidally locked planets. I have not re-read those papers for this. If that is right, the flux is the parameter under strain, not a model fault.
 
-**A Ki-Engir ocean-diffusion branch (`oceandiffusion=2e4`, no near-infrared change) was started from the same state and had not finished when this was written.** Run `scripts/compare.py` on `runs/ki_ohd2` if it is needed.
+**Ocean diffusion on Ki-Engir** (`oceandiffusion=2e4`, no near-infrared change, same start, last 3 of 10 years): global +1.4 K (274.1 against 272.7), ice-free ocean 0.62 against 0.57, coldest cell +4.6 K, warmest cell and albedo unchanged. It redistributes heat; it does not help with the hot state.
 
 ## Star temperature
 
@@ -203,3 +203,25 @@ How far to trust it:
 | first test | none needed | T21, `nirabsorption=True`, stock `tswr2/3`, at 1,600 and 1,400 W/m², 15 years each from the year-30 state: does a cold or temperate branch exist |
 
 Either way the convergence tool and the ocean diffusion can be used as they are.
+
+## Ki-Engir around Teegarden's Star (T21, first look)
+
+Star from the NASA Exoplanet Archive default solution (Dreizler et al. 2024): 3,034 K, 0.097 M☉, 0.120 R☉, log L/L☉ = −3.141. On Ki-Engir's 6.097-day orbit that is 0.0300 AU and **1,091 W/m²**, between the star's planets b (4.906 d) and c (11.416 d). The 2019 solution (Zechmeister et al.) has 2,904 K and 0.089 M☉. Blackbody star, `nirabsorption` on, everything else as the vault's Ki-Engir setup. 15 years from the 284 K restart, last 5 averaged (`results/kiengir_teegarden_t21.md`, `.png`):
+
+| quantity | stock clouds | vault's tuned clouds |
+|---|---|---|
+| T_s global (K) | 258.2, cooling 0.27 K/yr | 228.2 |
+| T_s dayside / nightside (K) | 274.4 / 241.9 | 252.3 / 204.1 |
+| warmest / coldest cell (K) | 309.3 / 179.0 | 287.2 / 149.6 |
+| planetary albedo | 0.277 | 0.477 |
+| absorbed shortwave (W/m²) | 197 | 143 |
+| ice-free ocean fraction | 0.48 | 0.33 |
+| precipitation, global (mm/yr) | 521 | 267 |
+| dayside land by sun elevation 0–15 / 15–30 / 30–60 / 60–90° (°C) | −24 / −1 / 19 / 20 | — |
+
+- With stock clouds the planet has a stable cold-temperate state with an albedo inside the published range for M-dwarf planets (0.22–0.28). No cloud tuning is needed to avoid the hot branch at this flux.
+- It is too cold for the polities: land at 15–30° of sun is near −1 °C against 19 °C in the vault's reference run and canon targets of 14–18 °C. Neither run is converged; the stock run is still thickening sea ice.
+- The tuned clouds over-cool badly here and should be dropped.
+- Around this star, more flux means a shorter orbit (F ∝ P^(−4/3)): 1,200 W/m² is 5.68 d and 1,300 W/m² is 5.35 d.
+
+Branches at 1,200 and 1,300 W/m² with stock clouds were started from the year-15 state of the stock run.
