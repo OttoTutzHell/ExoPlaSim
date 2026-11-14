@@ -664,7 +664,7 @@
       real :: pbg1(1024),pbg2(1024)
       integer, parameter :: jpk=10, jpb=3
       real :: zxk(jpk),zhk(jpb,jpk),zedge(jpb+1)
-      real :: zfs(jpb),zfg(jpb),zts,ztg,zmid,zds,zdg
+      real :: zfs(jpb),zfg(jpb),zts,ztg,zmid,zds,zdg,zts2,zcap
       real :: zy,zalh,zlo,zhi,zu,zas,zax
       integer :: jb,jk,jt,jit,k
 
@@ -683,6 +683,7 @@
       zfg(:)=0.
       zts=0.
       ztg=0.
+      zts2=0.
       do k=1,1023
        zmid=0.5*(pwv1(k)+pwv1(k+1))
        zds=0.5*(pbb1(k)+pbb1(k+1))*(pwv1(k+1)-pwv1(k))
@@ -699,6 +700,7 @@
        zds=0.5*(pbb2(k)+pbb2(k+1))*(pwv2(k+1)-pwv2(k))
        zdg=0.5*(pbg2(k)+pbg2(k+1))*(pwv2(k+1)-pwv2(k))
        zts=zts+zds
+       zts2=zts2+zds
        ztg=ztg+zdg
        do jb=1,jpb
         if (zmid >= zedge(jb) .and. zmid < zedge(jb+1)) then
@@ -723,8 +725,12 @@
        endif
       enddo
 !
-!     the table
+!     the table. The absorbed fraction is capped just below the flux
+!     fraction beyond 0.75 micron so that the band-2 transmissivity in
+!     swr stays positive for any stellar temperature or spectrum.
 !
+      zcap=1.
+      if (zts > 0.) zcap=0.98*zts2/zts
       do jt=1,NNIRTAB
        zy=10.**(nirlogy0+real(jt-1)*nirdlogy)
        zalh=2.9*zy/((1.+141.5*zy)**0.635+5.925*zy)
@@ -751,7 +757,7 @@
      &          *(1.-exp(-min(zxk(jk)*zu,80.)))
         enddo
        enddo
-       nirtab(jt)=zax
+       nirtab(jt)=min(zax,zcap)
       enddo
       nnirready=1
 
