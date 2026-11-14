@@ -8,8 +8,8 @@ def load(f):
 def summary(f,sslon=180.):
     lat,lon,v=load(f); LON,LAT=np.meshgrid(lon,lat)
     mu=np.cos(np.radians(LAT))*np.cos(np.radians(LON-sslon)); w=np.cos(np.radians(LAT))
-    day=mu>0; r={}
-    r['ts']=gm(v['ts'],lat); r['ts_day']=float((v['ts']*w)[day].sum()/w[day].sum()); r['ts_night']=float((v['ts']*w)[~day].sum()/w[~day].sum())
+    dw=np.where(mu>1e-6,1.0,np.where(mu<-1e-6,0.0,0.5)); r={}   # terminator columns count half to each side
+    r['ts']=gm(v['ts'],lat); r['ts_day']=float((v['ts']*w*dw).sum()/(w*dw).sum()); r['ts_night']=float((v['ts']*w*(1-dw)).sum()/(w*(1-dw)).sum())
     r['ts_max']=float(v['ts'].max()); r['ts_min']=float(v['ts'].min())
     r['toa']=gm(v['ntr'],lat); r['sfc']=gm(v['hfns'],lat)
     r['rst']=gm(v['rst'],lat); r['rss']=gm(v['rss'],lat); r['olr']=-gm(v['rlut'],lat)
