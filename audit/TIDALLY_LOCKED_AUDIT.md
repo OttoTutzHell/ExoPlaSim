@@ -1,5 +1,7 @@
 # ExoPlaSim audit for tidally locked, slow-rotating planets with extreme topography
 
+> Items 1–3 of the ranked list are implemented. See `IMPLEMENTATION_NOTES.md` for what changed, the benchmark results and the run configuration; it supersedes §6 here. Dayside and nightside means in §4.1 used a split that put the terminator columns on the day side; the notes use an even split.
+
 Audited tree: `5f8dff4` (ExoPlaSim 3.4.2). No model code is changed by this document.
 The reference planet is Ki-Engir (synchronous, 6.097 d, 0.92 R⊕, 7.99 m/s², 1 bar N₂,
 1,000 ppm CO₂, 2,825–2,879 K host, 26% land, relief to 8–10 km), with the run history in

@@ -149,5 +149,57 @@ Not a validation. Settings: the vault's `f1800_rc070` (1,800 W/m², 2,879 K, `rc
 
 From this start the two branches part: the reference slides toward the icy state as the vault found, and the near-infrared branch settles on a hot, very moist state that absorbs more than canon's runaway bound (295 ± 15 W/m²). In a moist column the stronger absorption takes the light before it reaches the cloud deck, the albedo collapses, and the warming feeds itself. The approximation's bias (see item 3) is in the direction of exaggerating this.
 
-A second pair, started from the reference run's cooler year-30 state, is running to show whether this is start-state hysteresis. Results will be added here.
+**From the reference run's cooler year-30 state (284 K, 10% sea ice, ~35 kg/m² of water), 10 years, last 3 averaged** (`results/kiengir_t21_demo.md`, `.png`):
 
+| quantity | reference | `nirabsorption` |
+|---|---|---|
+| T_s global (K) | 272.7, cooling 0.3 K/yr | 313.9, still warming 1.4 K/yr |
+| T_s dayside / nightside (K) | 286.7 / 258.7 | 321.2 / 306.7 |
+| warmest cell (K) | 321.6 | 360.3 |
+| planetary albedo | 0.525 | 0.258 |
+| absorbed shortwave, global (W/m²) | 214 | 334 |
+| ice-free ocean fraction | 0.57 | 1.00 |
+| precipitation, global / substellar cap (mm/yr) | 883 / 6,320 | 1,189 / 1,636 |
+| column water vapour (kg/m²) | 24 | 337 |
+
+The reference reproduces the vault's `f1800_rc070` track. The near-infrared branch turns around within a year and warms. So this is not start-state hysteresis: **with `nirabsorption` on, the tuned Ki-Engir settings have no cold state at 1,800 W/m², at least down to 284 K.** Whether a fully iced 270 K state would hold was not tested.
+
+Why the benchmark stayed moderate and Ki-Engir did not: twice the stellar flux and a much moister dayside. Vapour above the cloud deck absorbs the light the tuned clouds were reflecting, so the tripled `tswr2` loses most of its leverage.
+
+How far to trust it:
+- The sign is physical and published for cool stars (lower albedo, weaker substellar cloud, earlier moist greenhouse). The size is uncertain and biased high by the in-band approximation.
+- 1,800 W/m² around a ~2,900 K star is, from memory of the Kopparapu et al. (2016, 2017) inner-edge results, close to where three-dimensional models put the moist-greenhouse transition for tidally locked planets. I have not re-read those papers for this. If that is right, the flux is the parameter under strain, not a model fault.
+
+**A Ki-Engir ocean-diffusion branch (`oceandiffusion=2e4`, no near-infrared change) was started from the same state and had not finished when this was written.** Run `scripts/compare.py` on `runs/ki_ohd2` if it is needed.
+
+## Star temperature
+
+`nirabsorption` takes whatever `startemp` is set, or a `starspec` file; nothing is tied to a particular value. `scripts/nirtab.py TEFF ...` prints the factors for any temperature. 2,566 K and 2,600 K differ by about 1% (3.87/3.32/2.82/2.38 against 3.81/3.28/2.79/2.36 at 0.01/0.1/1/10 cm of water). The table is capped so the band transmissivity stays positive for any star.
+
+## Recommended run configuration for Ki-Engir
+
+| setting | T21 | T42 |
+|---|---|---|
+| grid, levels, step | T21 L10, 30 min | T42 L10, 30 min (20 if it crashes near the terminator range) |
+| `physicsfilter` | `gp|exp|sp` | `gp|exp|sp` |
+| `th2oc`, `gamma` | defaults | pin to 0.024 and 0.01, as the vault does |
+| `precision` | 8, with `recompile=True` on first use | same |
+| `mldepth` | 50 m, held fixed | same |
+| `oceandiffusion` | 2×10⁴ m²/s as a starting value; bracket with 1×10⁴ and 5×10⁴ | the value chosen at T21 |
+| `oceandiffusionzonal` | 1 unless a lobster-shaped open ocean is wanted | same |
+| `nirabsorption` | **decide first; see below** | same as T21 |
+| `glaciers`, `maxsnow` | off, default; mask `mrro` where snow is at the 5 m cap | same |
+| start | branch from an existing restart | transplant from T21 |
+| stop | `Model.convergence(window=10)` passes | same |
+| averaging | last 10 years | last 10 years |
+
+**The `nirabsorption` decision.** Two coherent options; mixing them is not one.
+
+| | keep it off | turn it on |
+|---|---|---|
+| what you keep | every tuned setting and run in the vault | — |
+| what you accept | a shortwave scheme that treats a 2,900 K star like the Sun, with clouds tuned to stand in for the missing absorption; rain about a third too strong on the benchmark | the tuned state is gone; clouds, and probably the 1,800 W/m² flux, must be re-chosen from scratch |
+| failure mode | canon rests on compensating errors | no setting inside the canon bounds may give a temperate dayside; the absorption is itself biased high |
+| first test | none needed | T21, `nirabsorption=True`, stock `tswr2/3`, at 1,600 and 1,400 W/m², 15 years each from the year-30 state: does a cold or temperate branch exist |
+
+Either way the convergence tool and the ocean diffusion can be used as they are.
