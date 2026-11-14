@@ -162,7 +162,7 @@ Configuration: THAI Hab 1 values (900 W/m², 2,600 K, 6.1 d, 0.91 R⊕, 9.12 m/s
 
 ### 4.1 Does the existing ocean diffusion do anything?
 
-Two runs from the same year-1 restart, 2 MPI ranks each, differing only in `NHDIFF@oceanmod_namelist=1`, `HDIFFK@oceanmod_namelist=50000.` (nominal; 4.1 × 10⁴ m²/s effective on this radius because of the Earth-radius error). Means of model years 9–11 (the diffusion run stopped at year 11 when the session's background job ended; the control ran to year 13).
+Two runs from the same year-1 restart, 2 MPI ranks each, differing only in `NHDIFF@oceanmod_namelist=1`, `HDIFFK@oceanmod_namelist=50000.` (nominal; 4.1 × 10⁴ m²/s effective on this radius because of the Earth-radius error). Both ran to model year 13. The table gives means of model years 9–11; years 11–13 differ from these by at most 0.2 K and 0.01 in ice-free fraction.
 
 | | control | ocean diffusion on | THAI Hab 1, four GCMs |
 |---|---|---|---|
