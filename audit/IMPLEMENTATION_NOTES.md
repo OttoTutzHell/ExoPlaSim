@@ -225,3 +225,26 @@ Star from the NASA Exoplanet Archive default solution (Dreizler et al. 2024): 3,
 - Around this star, more flux means a shorter orbit (F ∝ P^(−4/3)): 1,200 W/m² is 5.68 d and 1,300 W/m² is 5.35 d.
 
 Branches at 1,200 and 1,300 W/m² with stock clouds were started from the year-15 state of the stock run.
+
+### Flux steps at stock clouds
+
+From the year-15 state of the 1,091 W/m² run, 15 years each, last 5 averaged (`results/kiengir_teegarden_flux_t21.md`, `.png`; the figure's script took one flux for all columns, so the albedo row in the table was corrected by hand):
+
+| quantity | 1,091 W/m² (6.10 d) | 1,200 W/m² (5.68 d) | 1,300 W/m² (5.35 d) |
+|---|---|---|---|
+| T_s global (K) | 258.2 | 271.3 | 283.6, still warming |
+| T_s dayside / nightside (K) | 274.4 / 241.9 | 284.9 / 257.7 | 295.2 / 272.1 |
+| warmest cell (°C) | 36 | 48 | 60 |
+| dayside land at 0–15 / 15–30 / 30–60 / 60–90° of sun (°C) | −24 / −1 / 19 / 20 | −8 / 12 / 29 / 27 | 7 / 25 / 40 / 36 |
+| nightside land below freezing | 100% | 96% | 41% |
+| ice-free ocean fraction | 0.48 | 0.52 | 0.75, rising |
+| planetary albedo | 0.277 | 0.253 | 0.217 |
+| absorbed shortwave (W/m²) | 197 | 224 | 255 |
+| TOA net, last year (W/m²) | −1.7 | 0.0 | +2.4 |
+| precipitation, global (mm/yr) | 521 | 693 | 898 |
+
+- **1,200 W/m² is in balance and meets the vault's bounds with no cloud tuning**: absorbed 224 W/m² against the 295 ± 15 limit, warmest cell under 50 °C, nearly all nightside land frozen, land at 15–30° of sun at 12 °C and at 30–60° at 29 °C. Site-level polity temperatures have not been scored.
+- 1,300 W/m² is still warming after 15 years with the sea ice retreating; where it ends was not established.
+- These are T21 runs with a blackbody star and the biased-high absorption scheme. T42 ran 3 K warmer than T21 at fixed settings in the vault.
+
+**Orbital caveat.** Teegarden's Star b is at 0.0259 AU. Ki-Engir at 5.68 d is at 0.0286 AU, about 3.6 mutual Hill radii away (my estimate, for two roughly Earth-mass planets), and at 6.10 d about 5.4. Neither is a plausible long-term neighbour of planet b. Using this star honestly means Ki-Engir replaces planet b rather than joining it.
