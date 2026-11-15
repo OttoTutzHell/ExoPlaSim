@@ -1,0 +1,778 @@
+<title>Ki-Engir Planet Model</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an instrument console. The planet map leads; controls sit in a rail beside it; the comparison against the GCM and Otto's gates reads below. */
+:root {
+  --bg: #f6f4f1; --panel: #ffffff; --ink: #1d1a17; --muted: #6b645c; --line: #e2ddd6;
+  --star: #c4501f; --star-soft: #f6dccf; --night: #2c3a73; --pass: #2f7a4b; --fail: #b3362b; --warn: #a66a00;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121117; --panel: #1b1a22; --ink: #ece8e2; --muted: #9b958d; --line: #2d2b35;
+  --star: #f08a4b; --star-soft: #3a2418; --night: #9aa8ec; --pass: #6cc58e; --fail: #f07a6d; --warn: #e3b04b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121117; --panel: #1b1a22; --ink: #ece8e2; --muted: #9b958d; --line: #2d2b35;
+  --star: #f08a4b; --star-soft: #3a2418; --night: #9aa8ec; --pass: #6cc58e; --fail: #f07a6d; --warn: #e3b04b; color-scheme: dark }
+html { background: var(--bg); }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px; }
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 760; font-stretch: 112%; letter-spacing: -0.01em; line-height: 1.05; }
+h2 { font-size: 19px; font-weight: 700; font-stretch: 108%; }
+h3 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+p { margin: 0; }
+.num, .data { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+header.top { display: grid; gap: 10px; grid-template-columns: 1fr auto; align-items: end; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--star); font-weight: 650; }
+.lede { color: var(--muted); max-width: 70ch; }
+.clock { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chip { font-family: var(--font-data); font-size: 13px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+.chip.live { border-color: var(--star); color: var(--star); }
+.console { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.stage { padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+button, select { font-family: var(--font-body); font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--star); outline-offset: 2px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.mapbox { position: relative; width: 100%; aspect-ratio: 2 / 1; max-width: 100%; background: var(--bg); border-radius: 6px; overflow: hidden; }
+.mapbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.readout { font-family: var(--font-data); font-size: 12.5px; color: var(--muted); min-height: 2.6em; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.readout b { color: var(--ink); font-weight: 500; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); align-items: center; }
+.legend .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend canvas { height: 12px; width: min(340px, 100%); border-radius: 2px; }
+.ramp { display: grid; gap: 2px; width: min(380px, 100%); }
+.ramp .ticks { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 11px; }
+.rail { padding: 14px; display: grid; gap: 14px; }
+.runrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.runrow .primary { background: var(--star); color: #fff; border-color: var(--star); font-weight: 650; }
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-weight: 650; font-size: 14px; list-style: none; display: flex; justify-content: space-between; }
+summary::after { content: "+"; color: var(--muted); }
+details[open] summary::after { content: "−"; }
+.ctl { display: grid; gap: 2px; margin-top: 10px; }
+.ctl .lab { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.ctl output { font-family: var(--font-data); font-size: 12.5px; }
+.ctl small { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; }
+.tag.canon { color: var(--star); border-color: var(--star); }
+input[type="range"] { width: 100%; accent-color: var(--star); }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.card { padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+td.num { font-family: var(--font-data); }
+.gates { display: grid; gap: 8px; }
+.gate { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13.5px; }
+.pill { font-family: var(--font-data); font-size: 11.5px; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
+.pill.ok { background: color-mix(in srgb, var(--pass) 16%, transparent); color: var(--pass); }
+.pill.no { background: color-mix(in srgb, var(--fail) 16%, transparent); color: var(--fail); }
+.gate .val { font-family: var(--font-data); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.chart { width: 100%; height: 220px; display: block; }
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: 70px minmax(0, 1fr) 96px; gap: 10px; align-items: center; font-size: 13px; }
+.bar .track { position: relative; height: 14px; background: var(--bg); border-radius: 3px; border: 1px solid var(--line); }
+.bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; }
+.bar .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.bar .num { font-family: var(--font-data); font-size: 12px; color: var(--muted); text-align: right; }
+.note { font-size: 12.5px; color: var(--muted); }
+.notes { padding: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; align-items: start; }
+.notes > div { align-content: start; }
+.notes p, .notes li { font-size: 13.5px; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.keyline { font-size: 12px; color: var(--muted); }
+@media (max-width: 980px) { .console { grid-template-columns: 1fr; } .compare { grid-template-columns: 1fr; } .notes { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { header.top { grid-template-columns: 1fr; } .clock { justify-content: flex-start; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div style="display:grid;gap:8px;min-width:0">
+      <div class="eyebrow">Eversun · reference model, not canon</div>
+      <h1>Ki-Engir Planet Model</h1>
+      <p class="lede">The tidally locked planet as a climate you can run, around a real star on an orbit you choose. An energy-balance atmosphere on the canon relief, moisture drawn toward the substellar point, Ki-Engir's climate classes, and plant succession spreading across the lit hemisphere. Change a parameter and watch the geography re-form.</p>
+    </div>
+    <div class="clock">
+      <span class="chip live" id="runChip">running</span>
+      <span class="chip" id="yearChip">year 0</span>
+    </div>
+  </header>
+
+  <div class="console">
+    <section class="panel stage" aria-label="Planet map">
+      <div class="toolbar">
+        <div class="seg" id="layers" role="group" aria-label="Map layer"></div>
+        <div class="seg" role="group" aria-label="Projection">
+          <button type="button" id="viewMap" aria-pressed="true">Map</button>
+          <button type="button" id="viewGlobe" aria-pressed="false">Hemispheres</button>
+          <button type="button" id="riversBtn" aria-pressed="true">Rivers</button>
+          <button type="button" id="pinsBtn" aria-pressed="true">Places</button>
+        </div>
+      </div>
+      <div class="mapbox" id="mapbox"><canvas id="map" aria-label="Map of Ki-Engir"></canvas></div>
+      <div class="readout" id="readout"><span>Hover over the map to read a cell.</span></div>
+      <div class="legend" id="legend"></div>
+      <p class="keyline" id="riverKey"></p>
+    </section>
+
+    <aside class="panel rail" aria-label="Controls">
+      <div class="runrow">
+        <button type="button" class="primary" id="playBtn">Pause</button>
+        <select id="speed" aria-label="Model years per step">
+          <option value="0.5">½ year a step</option>
+          <option value="2" selected>2 years a step</option>
+          <option value="5">5 years a step</option>
+          <option value="20">20 years a step</option>
+        </select>
+        <button type="button" id="resetBare">Restart from bare rock</button>
+        <button type="button" id="resetCold">Cold start (250 K)</button>
+      </div>
+      <div style="display:grid;gap:6px">
+        <h3>Presets</h3>
+        <div class="presets" id="presets"></div>
+      </div>
+      <div style="display:grid;gap:6px">
+        <h3>Star</h3>
+        <div class="presets" id="stars"></div>
+        <p class="keyline" id="orbitLine"></p>
+      </div>
+      <div id="controls"></div>
+      <button type="button" id="copyBtn">Copy settings as JSON</button>
+    </aside>
+  </div>
+
+  <div class="compare">
+    <section class="panel card" style="grid-column: 1 / -1">
+      <div style="display:grid;gap:4px"><h2>Orbit sweep</h2>
+        <p class="note">Runs this model across orbital periods around the chosen star, with every other setting as it stands and the vegetation held where it is now. It starts on the longest orbit and carries the climate inward, so it follows the branch a cooling planet would warm along. Dots are ExoPlaSim runs at T21 for the same star.</p></div>
+      <div class="runrow">
+        <button type="button" class="primary" id="sweepBtn">Run the sweep</button>
+        <span class="chip" id="sweepChip">not run yet</span>
+      </div>
+      <canvas class="chart" id="sweepChart" style="height:280px" aria-label="Temperatures against orbital period"></canvas>
+      <p class="keyline" id="sweepKey"></p>
+      <div style="overflow-x:auto"><table id="sweepTable"></table></div>
+    </section>
+    <section class="panel card">
+      <div style="display:grid;gap:4px"><h2>Against the GCM</h2>
+        <p class="note" id="gcmNote"></p></div>
+      <div style="overflow-x:auto"><table id="gcmTable"></table></div>
+      <canvas class="chart" id="bandChart" aria-label="Surface temperature by sun elevation"></canvas>
+      <p class="keyline" id="bandKey"></p>
+    </section>
+    <section class="panel card">
+      <div style="display:grid;gap:4px"><h2>Otto's temperature gates</h2>
+        <p class="note">The constraints the Surface Temperature Model is fitted to. Site gates read sea-level air temperature in the site's 2° cell; frozen ground reads skin temperature. The runaway test uses the lower edge of Yang et al. 2019's limit; this model's water-vapour term is capped, so it cannot run away by itself.</p></div>
+      <div class="gates" id="gates"></div>
+      <div style="display:grid;gap:6px"><h3>Lit land cover</h3>
+        <div class="bars" id="bars"></div>
+        <p class="keyline">Black tick: the vault's own estimate in Ki-Engir Climate Zones (proposed), 50% desert, 15% steppe, 19% humid.</p></div>
+    </section>
+    <section class="panel card" style="grid-column: 1 / -1">
+      <div style="display:grid;gap:4px"><h2>Spin-up</h2>
+        <p class="note">Global, dayside and nightside mean skin temperature over model time. Dashed lines are the first GCM run's means.</p></div>
+      <canvas class="chart" id="timeChart" aria-label="Mean temperature over time"></canvas>
+      <p class="keyline" id="timeKey"></p>
+    </section>
+  </div>
+
+  <section class="panel notes" aria-label="About the model">
+    <div style="display:grid;gap:8px">
+      <h2>What runs</h2>
+      <ul>
+        <li><b>Relief:</b> the canon rescaled elevation (<span class="data">z_ki</span>, 6 arcmin) put through the Earth–Ki-Engir map transform and averaged to 2° cells.</li>
+        <li><b>Star and orbit:</b> the orbital period sets both the day length and, through Kepler's third law and the star's luminosity, the flux. The star's colour sets how the light is split.</li>
+        <li><b>Starlight:</b> water vapour above the cloud deck absorbs first, the cloud reflects what is left, vapour below absorbs again, and the surface takes or reflects the rest. The absorption law is the one added to ExoPlaSim for this project: the solar fit re-weighted in three near-infrared bands by the star's spectrum. Cloud and ice are dimmer under a red star, and cloud thins as the air warms.</li>
+        <li><b>Energy:</b> that absorbed starlight against gray-atmosphere emission with CO₂ and water-vapour terms, plus heat diffusion with an extra ocean share. Solved implicitly each step.</li>
+        <li><b>Surface:</b> air follows a 3.89 K/km lapse rate. Skin temperature comes from the surface energy balance: sunlight, back-radiation, turbulent exchange, evaporation and, under sea ice, conduction from the sea. Dry sunlit ground runs hot and night ground cold-pools on its own; slopes above a cold pool warm at the canon 25 K/km, never past the air.</li>
+        <li><b>Wind:</b> the column's net radiative heating is carried off by ascent (the weak-temperature-gradient balance used for tidally locked daysides), so air converges under the star and subsides elsewhere. That divergent flow comes from a velocity potential; the planet's rotation, one turn per orbit, turns it, drag that grows with speed slows it, and air chilled under an inversion drains downslope as katabatic wind.</li>
+        <li><b>Water:</b> vapour moves on that wind in flux form, so rain equals evaporation exactly. It leaves the low-level layer by an e-folding residence time, by ascent where the flow converges, and by saturation over cold or high ground. Latent heat leaves where water evaporates and returns where it rains.</li>
+        <li><b>Rivers:</b> runoff (rain minus land evaporation, none on frozen ground) routed D8 on a 0.5° grid of the canon relief after a priority-flood fill, the vault's own method. A depression deeper than 10 m holds open water that evaporates at the local PET: it spills when inflow beats that, and otherwise ends as a terminal lake.</li>
+        <li><b>Classes:</b> Otto's 0 °C ice and 6 °C tundra cuts, then P/PET at 0.20, 0.50 and 0.65, split at the CO₂-dependent cool line (11.7 °C at 1,000 ppm) and 27 °C.</li>
+        <li><b>Succession:</b> bare rock, lichen and moss, grass and herbs, shrub, early woodland, climax forest. Each class caps how far a cell can go, and disturbance resets cells at random.</li>
+      </ul>
+    </div>
+    <div style="display:grid;gap:8px">
+      <h2>What is fitted</h2>
+      <p>Cloud cover and albedo, cloud thinning, the greenhouse depths, heat diffusion and the vapour path are fitted to six ExoPlaSim runs at once: three orbits around Teegarden's Star and three around TRAPPIST-1, each scored on its global, dayside and nightside means, planetary albedo, open ocean and land temperature at two sun angles. Otto's gates are not part of the fit. Land recycling and vapour residence time are fitted to the GCM's rain. None of these has canon status. The rest of the surface and water physics uses Earth values or stated assumptions, with nothing fitted to the gates or the land-cover shares. The relief, the 3.89 K/km lapse rate and the 25 K/km inversion come from the vault; the stars' temperature, luminosity and mass from the NASA Exoplanet Archive.</p>
+      <p>Vegetation darkens the ground, from 0.28 for bare rock to 0.10 for forest. Stellar-kingdom plants absorb out to a 1,362 nm red edge, so they should be dark under this star.</p>
+    </div>
+    <div style="display:grid;gap:8px">
+      <h2>Where it fails</h2>
+      <p>A simplified climate model looks authoritative. Its numbers are reference values and cannot settle canon.</p>
+      <ul>
+        <li>Diffusion cannot make the GCM's cold lobes just past the terminator, so the nightside is too smooth. This drives most of the ~17 K RMS gap. The fit is also touchy: ice albedo makes a 0.02 change in cloud albedo move the planet by 4 K.</li>
+        <li>Quilatria and Quedros differ by only about half a kelvin: evaporation exports a little heat from the wet coast, not the several kelvin the Surface Temperature Model's continentality term supplies. Quedros clears 18 °C because the whole band is warm, with the dayside mean free and weak heat transport.</li>
+        <li>Rain is scored against the GCM: the pattern correlates at about 0.7 in log space, but land gets about half the GCM's rain and the nightside gets none, against the GCM's ~280 mm/yr carried there aloft. The model has only a low-level layer, so no upper-level return flow and no storm tracks.</li>
+        <li>The basin under the substellar rain core still carries the planet's largest river, a few hundred thousand m³/s. The GCM puts 6,500 mm/yr on substellar land against this model's ~3,000, so the real river may be larger, not smaller.</li>
+        <li>The sweep is only as good as its six anchors, which are 15-year T21 runs with a shortwave scheme that tends to overstate absorption under red stars. Outside the range they span (about 1,000 to 1,300 W/m²) the curves are extrapolation, and the hot branch in particular is a guess.</li>
+        <li>The sweep carries one climate inward from the cold end. A planet cooling from a hot start could sit on a different branch at the same orbit, and this page does not show that one.</li>
+        <li>The model does not check whether an orbit is stable beside the star's real planets. The line under the star buttons says which planets it falls between.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+/*DATA*/
+</script>
+<script>
+/*MODEL*/
+</script>
+<script>
+(function () {
+  const model = createKiModel(KI_DATA);
+  const DEFAULTS = Object.assign({}, model.P);
+  const { NX, NY, N } = model;
+  const C = t => t - 273.15;
+  const $ = id => document.getElementById(id);
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // ---------- controls
+  const GROUPS = [
+    { name: 'Star and air', open: true, items: [
+      { k: 'period', label: 'Orbital period', min: 3, max: 14, step: 0.01, unit: 'days', tag: 'free', note: 'Also the day length. The flux follows from the star and Kepler\'s third law; a shorter orbit is a brighter sky.' },
+      { k: 'starT', label: 'Star temperature', min: 2300, max: 6000, step: 10, unit: 'K', tag: 'star', note: 'Colour only. A cooler star puts more light where water vapour absorbs and where ice and cloud are dull.' },
+      { k: 'co2', label: 'CO₂', min: 100, max: 8000, step: 10, unit: 'ppm', log: true, tag: 'un-pinned', note: 'K73. Also moves the cool/temperate cut.' },
+      { k: 'tauDry', label: 'Dry greenhouse depth', min: 0, max: 1.2, step: 0.01, unit: 'τ', tag: 'fitted' },
+    ] },
+    { name: 'Cloud deck', open: true, items: [
+      { k: 'cloudMax', label: 'Cover under the star', min: 0.1, max: 0.98, step: 0.01, unit: '', tag: 'fitted', note: 'Cover rises from the base value toward this at the substellar point.' },
+      { k: 'cloudBase', label: 'Base cover', min: 0, max: 0.8, step: 0.01, unit: '', tag: 'fitted' },
+      { k: 'albCloud', label: 'Cloud albedo in sunlight', min: 0.2, max: 0.95, step: 0.01, unit: '', tag: 'fitted', note: 'Dimmed for a red star by the near-infrared share below.' },
+      { k: 'cloudNir', label: 'Cloud brightness, near-infrared', min: 0.3, max: 1, step: 0.01, unit: 'of visible', tag: 'assumed' },
+      { k: 'cloudSens', label: 'Cloud thinning with warmth', min: 0, max: 0.15, step: 0.005, unit: '/10 K', tag: 'fitted', note: 'ExoPlaSim loses about 0.08 of dayside cover per 10 K, but the fit to its temperatures prefers none here. Raise it to see the hot branch arrive sooner.' },
+    ] },
+    { name: 'Heat transport', open: false, items: [
+      { k: 'Datm', label: 'Atmospheric diffusion', min: 0.5, max: 20, step: 0.1, unit: 'W/m²/K', tag: 'fitted', note: 'Day-to-night transport. Lower it and the dayside cooks.' },
+      { k: 'Docean', label: 'Extra ocean diffusion', min: 0, max: 6, step: 0.05, unit: 'W/m²/K', tag: 'fitted' },
+      { k: 'mld', label: 'Mixed layer', min: 5, max: 200, step: 5, unit: 'm', tag: 'GCM', note: 'Sets how fast the sea responds, not where it settles.' },
+    ] },
+    { name: 'Surface', open: false, items: [
+      { k: 'lapse', label: 'Dayside lapse rate', min: 2, max: 9.8, step: 0.01, unit: 'K/km', tag: 'canon' },
+      { k: 'invRate', label: 'Slope warming above a cold pool', min: 0, max: 40, step: 1, unit: 'K/km', tag: 'canon', note: 'Never warmer than the air.' },
+      { k: 'hUnstable', label: 'Turbulent exchange, skin warmer', min: 5, max: 40, step: 1, unit: 'W/m²/K', tag: 'Earth', note: 'Bulk exchange with 5 m/s wind; sets how far a sunlit dry skin runs above the air.' },
+      { k: 'hStable', label: 'Turbulent exchange, skin colder', min: 0.5, max: 15, step: 0.5, unit: 'W/m²/K', tag: 'Earth', note: 'Stable night air; the cold pool deepens as this falls.' },
+      { k: 'wvScale', label: 'Water-vapour absorption', min: 0.3, max: 2.5, step: 0.01, unit: '×', tag: 'fitted', note: 'Scales the vapour path seen by starlight. The absorption law itself is the one added to ExoPlaSim.' },
+      { k: 'iceK', label: 'Heat through sea ice', min: 0, max: 3, step: 0.05, unit: 'W/m²/K', tag: 'Earth', note: 'Conduction through ~3 m of ice from the sea below.' },
+      { k: 'albIce', label: 'Ice albedo', min: 0.2, max: 0.8, step: 0.01, unit: '', tag: 'fitted', note: 'Low for snow, because M-dwarf light is mostly near-infrared.' },
+    ] },
+    { name: 'Water and wind', open: false, items: [
+      { k: 'evap', label: 'Sea evaporation', min: 0.2, max: 2, step: 0.05, unit: '×', tag: 'Earth', note: 'Energy-limited; matches the GCM dayside sea within 10% untuned.' },
+      { k: 'recycle', label: 'Land recycling', min: 0, max: 1, step: 0.01, unit: '', tag: 'fitted', note: 'Share of rain the ground returns to the air, up to its PET. Fitted to the GCM land rain.' },
+      { k: 'tauRes', label: 'Vapour residence time', min: 2, max: 30, step: 0.5, unit: 'days', tag: 'fitted', note: 'Fitted to the GCM rain pattern; Earth is about 9.' },
+      { k: 'rhCrit', label: 'Saturation for rain', min: 0.5, max: 1, step: 0.01, unit: '', tag: 'assumed' },
+      { k: 'stabK', label: 'Static stability', min: 5, max: 60, step: 1, unit: 'K', tag: 'Earth', note: 'Dry static energy across the troposphere; sets how much ascent a watt of heating drives.' },
+      { k: 'inflowH', label: 'Inflow layer depth', min: 500, max: 5000, step: 100, unit: 'm', tag: 'assumed' },
+      { k: 'fricDays', label: 'Surface friction time', min: 0.2, max: 5, step: 0.1, unit: 'days', tag: 'Earth' },
+      { k: 'dragCd', label: 'Drag coefficient', min: 0, max: 0.005, step: 0.0001, unit: '', tag: 'Earth', note: 'Quadratic drag over a 500 m boundary layer; holds slope winds to tens of m/s.' },
+    ] },
+    { name: 'Life', open: false, items: [
+      { k: 'succYears', label: 'Years per stage', min: 5, max: 200, step: 1, unit: 'yr', tag: 'fitted', note: 'At full warmth and moisture. Cold or dry ground goes slower.' },
+      { k: 'disturb', label: 'Disturbance', min: 0, max: 0.05, step: 0.0005, unit: '/yr', tag: 'fitted', note: 'Chance a vegetated cell resets to bare rock each year.' },
+      { k: 'albVeg', label: 'Forest albedo', min: 0.04, max: 0.3, step: 0.01, unit: '', tag: 'fitted' },
+    ] },
+  ];
+  const fmt = (v, step) => { const d = step >= 1 ? 0 : step >= 0.1 ? 1 : step >= 0.01 ? 2 : step >= 0.001 ? 3 : 4; return Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const inputs = {};
+  const ctlRoot = $('controls');
+  for (const g of GROUPS) {
+    const det = document.createElement('details'); if (g.open) det.open = true;
+    const sum = document.createElement('summary'); sum.textContent = g.name; det.appendChild(sum);
+    for (const it of g.items) {
+      const wrap = document.createElement('div'); wrap.className = 'ctl';
+      const id = 'p_' + it.k;
+      const toPos = v => it.log ? Math.log(v) : v, fromPos = p => it.log ? Math.round(Math.exp(p) / 10) * 10 : p;
+      wrap.innerHTML = `<div class="lab"><label for="${id}">${it.label}<span class="tag ${it.tag === 'canon' ? 'canon' : ''}">${it.tag}</span></label><output id="${id}_o"></output></div>
+        <input type="range" id="${id}" min="${toPos(it.min)}" max="${toPos(it.max)}" step="${it.log ? 0.01 : it.step}">` + (it.note ? `<small>${it.note}</small>` : '');
+      det.appendChild(wrap);
+      const inp = wrap.querySelector('input'), out = wrap.querySelector('output');
+      const show = () => { out.textContent = fmt(model.P[it.k], it.log ? 10 : it.step) + (it.unit ? ' ' + it.unit : ''); };
+      inp.addEventListener('input', () => { model.P[it.k] = fromPos(+inp.value); if (it.k === 'starT') model.P.spec = null; show(); markPreset(null); });
+      inputs[it.k] = { sync: () => { inp.value = toPos(model.P[it.k]); show(); } };
+    }
+    ctlRoot.appendChild(det);
+  }
+  const syncAll = () => Object.values(inputs).forEach(x => x.sync());
+
+  const PRESETS = [
+    { name: 'Fitted to the GCM', p: {} },
+    { name: 'Gray starlight', p: { spectral: 0 } },
+    { name: 'No cloud deck', p: { cloudMax: 0.3 } },
+    { name: 'Weak transport', p: { Datm: 2, Docean: 0 } },
+    { name: '280 ppm CO₂', p: { co2: 280 } },
+  ];
+  const presetBtns = PRESETS.map((pr, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = pr.name; b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    b.addEventListener('click', () => { Object.assign(model.P, DEFAULTS, pr.p); syncAll(); markPreset(i); });
+    $('presets').appendChild(b); return b;
+  });
+  function markPreset(i) { presetBtns.forEach((b, j) => b.setAttribute('aria-pressed', j === i ? 'true' : 'false')); }
+
+  // ---------- star and orbit
+  const STARS = KI_DATA.stars;
+  let starIdx = Math.max(0, STARS.findIndex(st => Math.abs(st.T - model.P.starT) < 1 && Math.abs(st.M - model.P.starM) < 1e-6));
+  const starBtns = STARS.map((st, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = st.name; b.setAttribute('aria-pressed', i === starIdx ? 'true' : 'false');
+    b.addEventListener('click', () => { starIdx = i; Object.assign(model.P, { starT: st.T, starL: st.L, starM: st.M, period: st.period, spec: st.spec }); syncAll(); starBtns.forEach((x, j) => x.setAttribute('aria-pressed', j === i ? 'true' : 'false')); orbitLine(); });
+    $('stars').appendChild(b); return b;
+  });
+  const orbitOf = (st, per) => { const a = Math.cbrt(st.M * Math.pow(per / 365.25, 2)); return { a, flux: 1361 * st.L / (a * a) }; };
+  function orbitLine() {
+    const st = STARS[starIdx], o = orbitOf({ L: model.P.starL, M: model.P.starM }, model.P.period), pl = st.planets;
+    let where = '';
+    const inner = pl.filter(q => q[1] < model.P.period).pop(), outer = pl.find(q => q[1] > model.P.period);
+    if (inner && outer) where = `, between planets ${inner[0]} (${inner[1].toFixed(2)} d) and ${outer[0]} (${outer[1].toFixed(2)} d)`;
+    else if (outer) where = `, inside planet ${outer[0]}`; else if (inner) where = `, outside planet ${inner[0]}`;
+    $('orbitLine').textContent = `${o.a.toFixed(4)} AU, ${Math.round(o.flux).toLocaleString('en-US')} W/m² at the substellar point${where}. ${st.note}`;
+  }
+
+  // ---------- layers & colour
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function ramp(stops) { // stops: [[v, [r,g,b]], ...]
+    return v => { if (v <= stops[0][0]) return stops[0][1]; for (let i = 1; i < stops.length; i++) if (v <= stops[i][0]) { const [v0, c0] = stops[i - 1], [v1, c1] = stops[i]; const t = (v - v0) / (v1 - v0); return [lerp(c0[0], c1[0], t), lerp(c0[1], c1[1], t), lerp(c0[2], c1[2], t)]; } return stops[stops.length - 1][1]; };
+  }
+  const SEA = [44, 72, 112], SEAICE = [206, 219, 232];
+  const CLS_COL = [[44, 72, 112], [206, 219, 232], [243, 246, 250], [150, 163, 150], [214, 196, 158], [226, 183, 120], [222, 146, 86], [196, 196, 128], [205, 180, 96], [206, 156, 72], [150, 176, 112], [146, 168, 82], [170, 160, 64], [84, 132, 100], [62, 128, 74], [28, 98, 58]];
+  const STAGE_NAMES = ['bare rock', 'lichen and moss', 'grass and herbs', 'shrub', 'early woodland', 'climax forest'];
+  const tRamp = ramp([[-60, [36, 38, 110]], [-30, [58, 98, 178]], [-10, [134, 176, 220]], [0, [236, 240, 240]], [10, [246, 214, 140]], [22, [236, 150, 72]], [34, [196, 70, 44]], [48, [110, 20, 40]]]);
+  const dRamp = ramp([[-25, [40, 70, 160]], [-8, [140, 175, 220]], [0, [240, 240, 236]], [8, [236, 160, 120]], [25, [160, 30, 40]]]);
+  const pRamp = ramp([[0, [232, 214, 170]], [1.5, [222, 206, 150]], [2.5, [180, 200, 150]], [3, [110, 170, 160]], [3.5, [50, 120, 170]], [4.2, [26, 50, 120]]]);
+  const aRamp = ramp([[0, [214, 160, 92]], [0.2, [226, 200, 130]], [0.5, [190, 200, 120]], [0.65, [110, 165, 100]], [1.2, [40, 110, 80]], [2.5, [20, 70, 90]]]);
+  const sRamp = ramp([[0, [168, 160, 150]], [1, [200, 196, 150]], [2, [196, 192, 92]], [3, [138, 150, 70]], [4, [72, 128, 66]], [5, [28, 90, 50]]]);
+  const zRamp = ramp([[-6000, [20, 40, 80]], [-1000, [50, 90, 140]], [0, [120, 160, 190]], [1, [96, 130, 88]], [800, [176, 168, 112]], [2500, [150, 112, 82]], [5000, [210, 200, 196]], [8400, [255, 255, 255]]]);
+  const bRamp = ramp([[0, [20, 20, 24]], [0.8, [245, 245, 245]]]);
+  const wRamp = ramp([[0, [236, 238, 232]], [3, [190, 214, 200]], [8, [110, 170, 170]], [15, [60, 110, 160]], [30, [70, 40, 120]]]);
+
+  const LAYERS = [
+    { id: 'cls', name: 'Climate', smooth: false },
+    { id: 'tair', name: 'Air temp', smooth: true },
+    { id: 'ts', name: 'Skin temp', smooth: true },
+    { id: 'dgcm', name: 'vs GCM', smooth: true },
+    { id: 'p', name: 'Rain', smooth: true },
+    { id: 'ai', name: 'P/PET', smooth: true },
+    { id: 'stage', name: 'Succession', smooth: false },
+    { id: 'z', name: 'Relief', smooth: true },
+    { id: 'wind', name: 'Wind', smooth: true },
+    { id: 'prgcm', name: 'Rain vs GCM', smooth: true },
+    { id: 'alb', name: 'Albedo', smooth: true },
+  ];
+  let layer = 'cls', gcmKey = 'rc067', view = 'map', showPins = true, showRivers = true;
+  const layerBtns = LAYERS.map(L => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = L.name; b.setAttribute('aria-pressed', L.id === layer ? 'true' : 'false');
+    b.addEventListener('click', () => { layer = L.id; layerBtns.forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false')); drawLegend(); drawMap(); });
+    $('layers').appendChild(b); return b;
+  });
+
+  // hillshade from mean relief
+  const shade = new Float32Array(N);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const k = j * NX + i, e = model.zmean[j * NX + (i + 1) % NX], w = model.zmean[j * NX + (i + NX - 1) % NX];
+    const n = model.zmean[Math.min(NY - 1, j + 1) * NX + i], s = model.zmean[Math.max(0, j - 1) * NX + i];
+    const dx = (e - w) / (2 * 222 * Math.max(model.cosLat(j), 0.2)), dy = (n - s) / (2 * 222);
+    shade[k] = model.lf[k] >= 0.5 ? Math.max(-0.25, Math.min(0.25, (-dx + dy) / 8)) : 0;
+  }
+  function cellColor(k) {
+    const land = model.lf[k] >= 0.5;
+    let c;
+    switch (layer) {
+      case 'cls': c = CLS_COL[model.cls[k]]; break;
+      case 'tair': c = tRamp(C(model.Tair[k])); break;
+      case 'ts': c = tRamp(C(model.Ts[k])); break;
+      case 'dgcm': c = dRamp(model.Ts[k] - model.gcm[gcmKey][k]); break;
+      case 'p': c = land || model.prec[k] > 0 ? pRamp(Math.log10(model.prec[k] + 1)) : SEA; if (!land) c = c.map((v, i) => lerp(v, SEA[i], 0.55)); break;
+      case 'ai': c = land ? aRamp(model.ai[k]) : (model.iceF[k] > 0.5 ? SEAICE : SEA); break;
+      case 'stage': c = land ? (model.cls[k] === 2 ? [243, 246, 250] : sRamp(model.stage[k])) : (model.iceF[k] > 0.5 ? SEAICE : SEA); break;
+      case 'z': c = zRamp(land ? Math.max(1, model.zl[k]) : model.zmean[k]); break;
+      case 'wind': c = wRamp(Math.hypot(model.uW[k], model.vW[k])); if (!land) c = c.map((v, ii) => lerp(v, SEA[ii], 0.35)); break;
+      case 'prgcm': c = dRamp(10 * Math.log10((model.prec[k] + 30) / (model.gcm.pr[k] + 30))); break;
+      case 'alb': c = bRamp(model.alb[k]); break;
+    }
+    if (land && layer !== 'dgcm' && layer !== 'alb') { const s = 1 + shade[k]; c = [c[0] * s, c[1] * s, c[2] * s]; }
+    return c;
+  }
+
+  // ---------- map drawing
+  const off = document.createElement('canvas'); off.width = NX; off.height = NY;
+  const offCtx = off.getContext('2d'); const img = offCtx.createImageData(NX, NY);
+  const cvs = $('map'); const ctx = cvs.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    const r = $('mapbox').getBoundingClientRect(); DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(200, Math.round(r.width)); H = Math.round(W / 2);
+    cvs.width = W * DPR; cvs.height = H * DPR; drawMap(); drawCharts();
+  }
+  const globe = document.createElement('canvas'); const gctx = globe.getContext('2d'); let gimg = null, gsize = 0;
+  const PINS = [
+    { name: 'Quilatria', lat: 39, lon: -50 }, { name: 'Quedros', lat: 55, lon: -25 },
+    { name: 'Silver Hordes', lat: 23, lon: -21 }, { name: 'Substellar point', lat: 0, lon: 0 },
+    { name: 'Terminator Cfb', lat: 60, lon: -80 },
+  ];
+  // orthographic: hemisphere centred on (0, lon0); returns [lat, lon] or null
+  function orthoInv(x, y, lon0) {
+    const r2 = x * x + y * y; if (r2 > 1) return null;
+    const z = Math.sqrt(1 - r2); // z toward viewer
+    // viewer looks at (lat 0, lon0). x east, y north.
+    const lat = Math.asin(y) * 180 / Math.PI;
+    const lon = lon0 + Math.atan2(x, z) * 180 / Math.PI;
+    return [lat, ((lon + 540) % 360) - 180];
+  }
+  function orthoFwd(lat, lon, lon0) {
+    const p = lat * Math.PI / 180, l = (lon - lon0) * Math.PI / 180;
+    const z = Math.cos(p) * Math.cos(l); if (z < 0) return null;
+    return [Math.cos(p) * Math.sin(l), Math.sin(p)];
+  }
+  function geom() { // two disks side by side
+    const pad = 10 * DPR, R = Math.min((cvs.width - 3 * pad) / 4, (cvs.height - 2 * pad - 18 * DPR) / 2);
+    const cy = pad + R + 14 * DPR;
+    return { R, centers: [[cvs.width / 4, cy, 0], [3 * cvs.width / 4, cy, 180]] };
+  }
+  // rivers over 30 m3/s, width by log discharge; lakes as open water
+  const RV = model.river;
+  function drawRivers(proj, cellPx) {
+    if (!showRivers) return;
+    const RXr = RV.RX;
+    ctx.fillStyle = 'rgba(70,140,210,0.85)';
+    for (let k = 0; k < RXr * RV.RY; k++) {
+      const f = RV.rLakeF[k]; if (f < 0.2) continue;
+      const a = proj(RV.rLat[(k / RXr) | 0], RV.rLon[k % RXr]); if (!a) continue;
+      const s = cellPx * Math.sqrt(f); ctx.fillRect(a[0] - s / 2, a[1] - s / 2, s, s);
+    }
+    const classes = [[200, 0.6], [1000, 1.1], [5000, 1.8], [30000, 2.8]];
+    ctx.strokeStyle = 'rgba(40,110,190,0.92)'; ctx.lineCap = 'round';
+    for (let c = 0; c < classes.length; c++) {
+      const lo = classes[c][0], hi = c + 1 < classes.length ? classes[c + 1][0] : Infinity;
+      ctx.lineWidth = classes[c][1] * DPR; ctx.beginPath();
+      for (let k = 0; k < RXr * RV.RY; k++) {
+        const q = RV.rQ[k]; if (q < lo || q >= hi) continue;
+        const r = RV.rRecv[k]; if (r < 0) continue;
+        const a = proj(RV.rLat[(k / RXr) | 0], RV.rLon[k % RXr]), b = proj(RV.rLat[(r / RXr) | 0], RV.rLon[r % RXr]);
+        if (!a || !b || Math.abs(a[0] - b[0]) > cellPx * 3) continue;
+        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      }
+      ctx.stroke();
+    }
+  }
+  function drawMap() {
+    if (!W) return;
+    const d = img.data;
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      const k = j * NX + i, o = ((NY - 1 - j) * NX + i) * 4, c = cellColor(k);
+      d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+    }
+    offCtx.putImageData(img, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = css('--bg'); ctx.fillRect(0, 0, cvs.width, cvs.height);
+    const smooth = LAYERS.find(L => L.id === layer).smooth;
+    if (view === 'map') {
+      ctx.imageSmoothingEnabled = smooth; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(off, 0, 0, cvs.width, cvs.height);
+      // terminator and graticule
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1 * DPR; ctx.setLineDash([4 * DPR, 4 * DPR]);
+      for (const lo of [-90, 90]) { const x = (lo + 180) / 360 * cvs.width; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cvs.height); ctx.stroke(); }
+      ctx.setLineDash([]);
+      drawRivers((la, lo) => [(lo + 180) / 360 * cvs.width, (90 - la) / 180 * cvs.height], cvs.width / RV.RX);
+      if (layer === 'wind') {
+        const cw = cvs.width / NX; ctx.strokeStyle = 'rgba(20,24,40,0.75)'; ctx.lineWidth = 1 * DPR; ctx.beginPath();
+        for (let j = 1; j < NY; j += 3) for (let i = 1; i < NX; i += 3) {
+          const k = j * NX + i, u = model.uW[k], v = model.vW[k], sp = Math.hypot(u, v); if (sp < 0.5) continue;
+          const x = (i + 0.5) * cw, y = (NY - 1 - j + 0.5) * cw, L = Math.min(2.6, 0.6 + sp / 6) * cw, ux = u / sp, uy = -v / sp;
+          const x2 = x + ux * L, y2 = y + uy * L;
+          ctx.moveTo(x, y); ctx.lineTo(x2, y2);
+          ctx.moveTo(x2, y2); ctx.lineTo(x2 - (ux * 0.35 - uy * 0.25) * cw, y2 - (uy * 0.35 + ux * 0.25) * cw);
+          ctx.moveTo(x2, y2); ctx.lineTo(x2 - (ux * 0.35 + uy * 0.25) * cw, y2 - (uy * 0.35 - ux * 0.25) * cw);
+        }
+        ctx.stroke();
+      }
+      if (showPins) for (const p of PINS) { const x = (p.lon + 180) / 360 * cvs.width, y = (90 - p.lat) / 180 * cvs.height; pin(x, y, p.name); }
+      ctx.font = `${11 * DPR}px "IBM Plex Mono", monospace`; ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.textAlign = 'center'; ctx.fillText('terminator', (90 + 180) / 360 * cvs.width, cvs.height - 8 * DPR); ctx.fillText('terminator', (-90 + 180) / 360 * cvs.width, cvs.height - 8 * DPR);
+    } else {
+      const { R, centers } = geom(); const size = Math.max(2, Math.round(2 * R));
+      if (gsize !== size) { globe.width = globe.height = size; gimg = gctx.createImageData(size, size); gsize = size; }
+      for (const [cx, cy, lon0] of centers) {
+        const gd = gimg.data;
+        for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+          const x = (px + 0.5) / size * 2 - 1, y = 1 - (py + 0.5) / size * 2, o = (py * size + px) * 4;
+          const ll = orthoInv(x, y, lon0);
+          if (!ll) { gd[o + 3] = 0; continue; }
+          const k = model.idx(ll[0], ll[1]), c = cellColor(k), lim = 0.75 + 0.25 * Math.sqrt(Math.max(0, 1 - x * x - y * y));
+          gd[o] = c[0] * lim; gd[o + 1] = c[1] * lim; gd[o + 2] = c[2] * lim; gd[o + 3] = 255;
+        }
+        gctx.putImageData(gimg, 0, 0);
+        ctx.drawImage(globe, cx - R, cy - R);
+        ctx.font = `600 ${12 * DPR}px Archivo, sans-serif`; ctx.fillStyle = css('--muted'); ctx.textAlign = 'center';
+        ctx.fillText(lon0 === 0 ? 'Dayside, centred on the substellar point' : 'Nightside, centred on the antistellar point', cx, cy - R - 5 * DPR);
+        drawRivers((la, lo) => { const f = orthoFwd(la, lo, lon0); return f ? [cx + f[0] * R, cy - f[1] * R] : null; }, R * Math.PI / RV.RY * 1.2);
+        if (showPins) for (const p of PINS) { const f = orthoFwd(p.lat, p.lon, lon0); if (f) pin(cx + f[0] * R, cy - f[1] * R, p.name); }
+      }
+    }
+  }
+  function pin(x, y, name) {
+    ctx.beginPath(); ctx.arc(x, y, 3.5 * DPR, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 1.5 * DPR; ctx.strokeStyle = '#111'; ctx.stroke();
+    ctx.font = `600 ${11 * DPR}px Archivo, sans-serif`; ctx.textAlign = 'left'; ctx.lineWidth = 3 * DPR; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.strokeText(name, x + 6 * DPR, y + 4 * DPR);
+    ctx.fillStyle = '#fff'; ctx.fillText(name, x + 6 * DPR, y + 4 * DPR);
+  }
+  function locate(ev) {
+    const r = cvs.getBoundingClientRect(), x = (ev.clientX - r.left) * DPR, y = (ev.clientY - r.top) * DPR;
+    if (view === 'map') return [90 - y / cvs.height * 180, x / cvs.width * 360 - 180];
+    const { R, centers } = geom();
+    for (const [cx, cy, lon0] of centers) { const ll = orthoInv((x - cx) / R, (cy - y) / R, lon0); if (ll) return ll; }
+    return null;
+  }
+  const ns = v => `${Math.abs(v).toFixed(0)}°${v >= 0 ? 'N' : 'S'}`, ew = v => `${Math.abs(v).toFixed(0)}°${v >= 0 ? 'E' : 'W'}`;
+  let hoverK = -1, hoverLL = null;
+  function readout() {
+    const k = hoverK; if (k < 0) return;
+    const j = (k / NX) | 0, i = k % NX, land = model.lf[k] >= 0.5;
+    const items = [
+      `<span><b>${ns(model.latc[j])} ${ew(model.lonc[i])}</b></span>`,
+      `<span>sun <b>${model.sunEl[k].toFixed(0)}°</b></span>`,
+      `<span>${land ? 'land' : 'sea'} <b>${Math.round(land ? model.zl[k] : model.zmean[k]).toLocaleString('en-US')} m</b></span>`,
+      `<span>air <b>${C(model.Tair[k]).toFixed(1)} °C</b></span>`,
+      `<span>skin <b>${C(model.Ts[k]).toFixed(1)} °C</b></span>`,
+      `<span>GCM skin <b>${C(model.gcm[gcmKey][k]).toFixed(1)} °C</b></span>`,
+      `<span>rain <b>${Math.round(model.prec[k]).toLocaleString('en-US')} mm/yr</b></span>`,
+      `<span>GCM rain <b>${Math.round(model.gcm.pr[k]).toLocaleString('en-US')}</b></span>`,
+      `<span>wind <b>${Math.hypot(model.uW[k], model.vW[k]).toFixed(1)} m/s</b></span>`,
+    ];
+    if (hoverLL) {
+      const rj = Math.min(RV.RY - 1, Math.max(0, Math.floor((hoverLL[0] + 90) / RV.RRES))), ri = ((Math.floor((hoverLL[1] + 180) / RV.RRES) % RV.RX) + RV.RX) % RV.RX, rk = rj * RV.RX + ri;
+      if (RV.rLand[rk]) {
+        if (RV.rLakeF[rk] > 0) items.push(`<span><b>${RV.rQ[rk] > 0 ? 'lake, spilling' : 'terminal lake'}</b></span>`);
+        if (RV.rQ[rk] >= 1) items.push(`<span>river <b>${Math.round(RV.rQ[rk]).toLocaleString('en-US')} m³/s</b></span>`, `<span>catchment <b>${Math.round(RV.rCatch[rk] / 1e6).toLocaleString('en-US')} km²</b></span>`);
+      }
+    }
+    if (land) items.push(`<span>P/PET <b>${model.ai[k].toFixed(2)}</b></span>`, `<span><b>${model.CLS[model.cls[k]]}</b></span>`, `<span><b>${STAGE_NAMES[Math.min(5, Math.floor(model.stage[k] + 1e-6))]}</b></span>`);
+    $('readout').innerHTML = items.join('');
+  }
+  cvs.addEventListener('pointermove', ev => { const ll = locate(ev); hoverLL = ll; hoverK = ll ? model.idx(ll[0], ll[1]) : -1; if (hoverK < 0) $('readout').innerHTML = '<span>Outside the planet.</span>'; else readout(); });
+  cvs.addEventListener('pointerleave', () => { hoverK = -1; });
+  $('viewMap').onclick = () => { view = 'map'; $('viewMap').setAttribute('aria-pressed', 'true'); $('viewGlobe').setAttribute('aria-pressed', 'false'); drawMap(); };
+  $('viewGlobe').onclick = () => { view = 'globe'; $('viewGlobe').setAttribute('aria-pressed', 'true'); $('viewMap').setAttribute('aria-pressed', 'false'); drawMap(); };
+  $('riversBtn').onclick = () => { showRivers = !showRivers; $('riversBtn').setAttribute('aria-pressed', String(showRivers)); drawMap(); };
+  $('pinsBtn').onclick = () => { showPins = !showPins; $('pinsBtn').setAttribute('aria-pressed', String(showPins)); drawMap(); };
+
+  // ---------- legend
+  function gradientLegend(fn, lo, hi, ticks, unit, log) {
+    const c = document.createElement('canvas'); c.width = 240; c.height = 1; const g = c.getContext('2d'); const id = g.createImageData(240, 1);
+    for (let x = 0; x < 240; x++) { const v = lo + (hi - lo) * x / 239, col = fn(v); id.data[x * 4] = col[0]; id.data[x * 4 + 1] = col[1]; id.data[x * 4 + 2] = col[2]; id.data[x * 4 + 3] = 255; }
+    g.putImageData(id, 0, 0);
+    const wrap = document.createElement('div'); wrap.className = 'ramp'; wrap.appendChild(c);
+    const t = document.createElement('div'); t.className = 'ticks';
+    t.innerHTML = ticks.map(v => `<span>${log ? Math.round(Math.pow(10, v) - 1).toLocaleString('en-US') : v}</span>`).join('') ;
+    wrap.appendChild(t);
+    const u = document.createElement('span'); u.textContent = unit;
+    $('legend').append(wrap, u);
+  }
+  function drawLegend() {
+    const L = $('legend'); L.innerHTML = '';
+    if (layer === 'cls') {
+      const present = new Set(); for (let k = 0; k < N; k++) present.add(model.cls[k]);
+      L.innerHTML = model.CLS.map((n, i) => present.has(i) ? `<span><span class="sw" style="background:rgb(${CLS_COL[i].join(',')})"></span>${n}</span>` : '').join('');
+    } else if (layer === 'stage') {
+      L.innerHTML = STAGE_NAMES.map((n, i) => `<span><span class="sw" style="background:rgb(${sRamp(i).map(Math.round).join(',')})"></span>${n}</span>`).join('');
+    } else if (layer === 'ts' || layer === 'tair') gradientLegend(tRamp, -60, 48, [-60, -30, -10, 0, 10, 22, 34, 48], layer === 'ts' ? 'skin °C, from the surface energy balance' : 'near-surface air °C');
+    else if (layer === 'dgcm') {
+      gradientLegend(dRamp, -25, 25, [-25, -8, 0, 8, 25], 'model − GCM, K');
+      const sel = document.createElement('select'); sel.id = 'gcmSel'; sel.setAttribute('aria-label', 'GCM run');
+      sel.innerHTML = `<option value="rc067">${GA.short}</option><option value="rc070">${GB.short}</option>`; sel.value = gcmKey;
+      sel.onchange = () => { gcmKey = sel.value; drawMap(); };
+      L.appendChild(sel);
+    } else if (layer === 'p') gradientLegend(pRamp, 0, 4.2, [0, 1.5, 2.5, 3, 3.5, 4.2], 'mm per Earth year', true);
+    else if (layer === 'ai') gradientLegend(aRamp, 0, 2.5, [0, 0.2, 0.5, 0.65, 1.2, 2.5], 'P/PET: desert below 0.20, steppe to 0.50, humid above 0.65');
+    else if (layer === 'z') gradientLegend(zRamp, -6000, 8400, [-6000, -1000, 0, 2500, 5000, 8400], 'm, canon rescaled relief');
+    else if (layer === 'alb') gradientLegend(bRamp, 0, 0.8, [0, 0.2, 0.4, 0.6, 0.8], 'planetary albedo');
+    else if (layer === 'wind') gradientLegend(wRamp, 0, 30, [0, 3, 8, 15, 30], 'surface wind, m/s; arrows show direction');
+    else if (layer === 'prgcm') gradientLegend(dRamp, -25, 25, [-25, -8, 0, 8, 25], 'rain against the GCM, 10 × log₁₀ ratio: −10 is a tenth, +10 ten times');
+  }
+
+  // ---------- comparison panels
+  const history = [];
+  const GA = KI_DATA.gcmMeta.a, GB = KI_DATA.gcmMeta.b;
+  $('gcmNote').textContent = `ExoPlaSim at T21 with stock clouds and star-dependent near-infrared absorption, years 11–15: ${GA.label}, and ${GB.label}. The field scores (RMS, rain) are against the first and only mean something when the model sits on that orbit. Model values are skin temperature on the same 2° grid.`;
+  function drawTable(s) {
+    const g = { rc067: GA.means, rc070: GB.means };
+    const rows = [['Global mean', s.global, 0], ['Dayside mean', s.day, 1], ['Nightside mean', s.night, 2], ['Warmest cell', s.max, 3]];
+    let h = `<tr><th>surface, °C</th><th>model</th><th>${GA.short}</th><th>${GB.short}</th></tr>`;
+    for (const [n, v, i] of rows) h += `<tr><td>${n}</td><td class="num">${C(v).toFixed(1)}</td><td class="num">${C(g.rc067[i]).toFixed(1)}</td><td class="num">${g.rc070[i] == null ? '—' : C(g.rc070[i]).toFixed(1)}</td></tr>`;
+    h += `<tr><td>RMS difference, K</td><td class="num"></td><td class="num">${s.rms067.toFixed(1)}</td><td class="num">${s.rms070.toFixed(1)}</td></tr>`;
+    h += `<tr><td>Land rain, mm/yr</td><td class="num">${Math.round(s.landRain).toLocaleString('en-US')}</td><td class="num">${Math.round(s.gcmLandRain).toLocaleString('en-US')}</td><td class="num">—</td></tr>`;
+    h += `<tr><td>Rain pattern, log correlation</td><td class="num"></td><td class="num">${s.rainCorr.toFixed(2)}</td><td class="num">—</td></tr>`;
+    h += `<tr><td>Air vs 2 m air, RMS K</td><td class="num"></td><td class="num">${s.airRms.toFixed(1)}</td><td class="num">—</td></tr>`;
+    h += `<tr><td>Planetary albedo</td><td class="num">${s.albedo.toFixed(3)}</td><td class="num">${GA.albedo.toFixed(3)}</td><td class="num">${GB.albedo.toFixed(3)}</td></tr>`;
+    h += `<tr><td>Ice-free ocean</td><td class="num">${(100 * s.iceFree).toFixed(0)}%</td><td class="num">${(100 * GA.iceFree).toFixed(0)}%</td><td class="num">${(100 * GB.iceFree).toFixed(0)}%</td></tr>`;
+    $('gcmTable').innerHTML = h;
+  }
+  function axes(c, x0, x1, y0, y1, xt, yt, xl, yl) {
+    const g = c.getContext('2d'), w = c.width, h = c.height, d = DPR;
+    const L = 42 * d, R = 22 * d, T = 10 * d, B = 28 * d;
+    const X = v => L + (v - x0) / (x1 - x0) * (w - L - R), Y = v => T + (1 - (v - y0) / (y1 - y0)) * (h - T - B);
+    g.clearRect(0, 0, w, h);
+    g.font = `${11 * d}px "IBM Plex Mono", monospace`; g.fillStyle = css('--muted'); g.strokeStyle = css('--line'); g.lineWidth = d;
+    g.textAlign = 'right'; g.textBaseline = 'middle';
+    for (const v of yt) { const y = Y(v); g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke(); g.fillText(String(v), L - 6 * d, y); }
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    for (const v of xt) { const x = X(v); g.fillText(xl ? xl(v) : String(v), x, h - B + 7 * d); }
+    return { g, X, Y };
+  }
+  function sizeChart(c) { const r = c.getBoundingClientRect(); c.width = Math.max(200, r.width) * DPR; c.height = r.height * DPR; }
+  function drawCharts() {
+    if (!DPR) return;
+    const s = model.stats();
+    // band profile
+    const bc = $('bandChart'); sizeChart(bc);
+    const all = [...s.bands, ...model.gcmBands.rc067, ...model.gcmBands.rc070].map(C);
+    const lo = Math.floor(Math.min(...all) / 10) * 10, hi = Math.ceil(Math.max(...all) / 10) * 10;
+    const yt = []; for (let v = lo; v <= hi; v += 10) yt.push(v);
+    const { g, X, Y } = axes(bc, -90, 90, lo, hi, [-90, -60, -30, 0, 30, 60, 90], yt, v => v + '°');
+    const line = (arr, col, dash, wd) => { g.strokeStyle = col; g.lineWidth = wd * DPR; g.setLineDash(dash.map(x => x * DPR)); g.beginPath(); arr.forEach((v, i) => { const x = X(-85 + 10 * i), y = Y(C(v)); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]); };
+    g.fillStyle = css('--star-soft'); g.globalAlpha = 0.5; g.fillRect(X(0), 10 * DPR, X(90) - X(0), bc.height - 38 * DPR); g.globalAlpha = 1;
+    line(model.gcmBands.rc070, css('--muted'), [2, 3], 1.5);
+    line(model.gcmBands.rc067, css('--ink'), [6, 4], 1.75);
+    line(s.bands, css('--star'), [], 2.5);
+    s.bands.forEach((v, i) => { g.beginPath(); g.arc(X(-85 + 10 * i), Y(C(v)), 2.5 * DPR, 0, 7); g.fillStyle = css('--star'); g.fill(); });
+    $('bandKey').innerHTML = `<span style="color:var(--star)">━ model</span> &nbsp; <span>╍ ${GA.short}</span> &nbsp; <span>┈ ${GB.short}</span> &nbsp; Mean surface °C by sun elevation, 10° bands. The shaded half is the dayside.`;
+    // time series
+    const tc = $('timeChart'); sizeChart(tc);
+    const ys = history.length ? history : [{ y: 0, g: s.global, d: s.day, n: s.night }];
+    const ymax = Math.max(10, ys[ys.length - 1].y);
+    const vals = ys.flatMap(p => [p.g, p.d, p.n]).concat(GA.means.slice(0, 3)).map(C);
+    const tlo = Math.floor(Math.min(...vals) / 10) * 10, thi = Math.ceil(Math.max(...vals) / 10) * 10;
+    const tyt = []; for (let v = tlo; v <= thi; v += 10) tyt.push(v);
+    const xt = []; const stepX = [5, 10, 20, 50, 100, 200, 500, 1000].find(st => ymax / st <= 8) || 2000; for (let v = 0; v <= ymax; v += stepX) xt.push(v);
+    const A = axes(tc, 0, ymax, tlo, thi, xt, tyt, v => v + ' yr');
+    const ref = (v, col) => { A.g.strokeStyle = col; A.g.lineWidth = 1.25 * DPR; A.g.setLineDash([5 * DPR, 4 * DPR]); A.g.beginPath(); A.g.moveTo(A.X(0), A.Y(C(v))); A.g.lineTo(A.X(ymax), A.Y(C(v))); A.g.stroke(); A.g.setLineDash([]); };
+    const series = (key, col) => { A.g.strokeStyle = col; A.g.lineWidth = 2 * DPR; A.g.beginPath(); ys.forEach((p, i) => { const x = A.X(p.y), y = A.Y(C(p[key])); i ? A.g.lineTo(x, y) : A.g.moveTo(x, y); }); A.g.stroke(); };
+    ref(GA.means[1], css('--star')); ref(GA.means[0], css('--ink')); ref(GA.means[2], css('--night'));
+    series('d', css('--star')); series('g', css('--ink')); series('n', css('--night'));
+    $('timeKey').innerHTML = `<span style="color:var(--star)">━ dayside</span> &nbsp; <span>━ global</span> &nbsp; <span style="color:var(--night)">━ nightside</span> &nbsp; °C against model years.`;
+    drawTable(s); drawGates(s); drawBars(s); if (!sweeping) drawSweep();
+    const rs = model.riverStats(), f0 = v => Math.round(v).toLocaleString('en-US');
+    $('riverKey').textContent = `Rivers drawn above 200 m³/s, routed D8 on a 0.5° grid after a priority-flood fill. Biggest river mouth ${f0(rs.qmax)} m³/s. Largest dayside catchment ${(rs.biggestCatchKm2 / 1e6).toFixed(2)} M km² (the vault's 19 km routing: 5.89). Lakes: ${f0(rs.throughKm2 / 1000)}k km² spilling, ${f0(rs.terminalKm2 / 1000)}k km² in terminal lakes.`;
+  }
+  function gateList(s) {
+    return [
+      ['Quilatria, 39°N 50°W, at least 14 °C', s.quilatria - 273.15 >= 14, `${C(s.quilatria).toFixed(1)} °C`],
+      ['Quedros, 55°N 25°W, at least 18 °C', s.quedros - 273.15 >= 18, `${C(s.quedros).toFixed(1)} °C`],
+      ['Silver Hordes tableland, 3,215 m, above 0 °C (6 °C if plausible)', s.silver - 273.15 > 0, `${C(s.silver).toFixed(1)} °C`],
+      ['Highlands on the 0th meridian north of 60°, some ground above 6 °C', s.highlands - 273.15 > 6, `${C(s.highlands).toFixed(1)} °C`],
+      ['No runaway: global absorbed starlight under the 295 ± 15 W/m² limit', s.asrGlobal < 280, `${s.asrGlobal.toFixed(0)} W/m²`],
+      ['Most nightside lowland (under 1,000 m) frozen', s.nightFrozen > 0.5, `${(100 * s.nightFrozen).toFixed(0)}%`],
+      [`No surface below CO₂ frost, ${s.frost.toFixed(0)} K`, s.min > s.frost, `min ${s.min.toFixed(0)} K`],
+    ];
+  }
+  function drawGates(s) {
+    const gates = gateList(s);
+    $('gates').innerHTML = gates.map(([t, ok, v]) => `<div class="gate"><span class="pill ${ok ? 'ok' : 'no'}">${ok ? 'pass' : 'fail'}</span><span>${t}</span><span class="val">${v}</span></div>`).join('');
+  }
+  function drawBars(s) {
+    const rows = [['Desert', s.desert, 0.493, '#d9a35f'], ['Steppe', s.steppe, 0.150, '#c2b25a'], ['Humid', s.humid, 0.191, '#3f8a55']];
+    $('bars').innerHTML = rows.map(([n, v, ref, col]) => `<div class="bar"><span>${n}</span><span class="track"><span class="fill" style="width:${(100 * v).toFixed(1)}%;background:${col}"></span><span class="mark" style="left:${(100 * ref).toFixed(1)}%"></span></span><span class="num">${(100 * v).toFixed(0)}% / ${(100 * ref).toFixed(0)}%</span></div>`).join('');
+  }
+
+  // ---------- orbit sweep: a second model instance stepped in small chunks so the page stays live
+  let sweeping = false, sweepRes = [], sweepStar = null;
+  function sweepRange() { const st = STARS[starIdx]; const out = []; for (let p = st.sweep[1]; p >= st.sweep[0] - 1e-9; p -= st.sweep[2]) out.push(+p.toFixed(3)); return out; }
+  function startSweep() {
+    if (sweeping) { sweeping = false; return; }
+    const sm = createKiModel(KI_DATA), periods = sweepRange();
+    Object.assign(sm.P, model.P); sm.reset({ T0: 255 }); sm.stage.set(model.stage);
+    sweepRes = []; sweepStar = STARS[starIdx]; sweeping = true; $('sweepBtn').textContent = 'Stop';
+    let i = 0, n = 0, last = 0;
+    const chunk = () => {
+      if (!sweeping || i >= periods.length) { sweeping = false; $('sweepBtn').textContent = 'Run the sweep'; $('sweepChip').textContent = i >= periods.length ? 'done' : 'stopped'; drawSweep(); return; }
+      sm.P.period = periods[i];
+      for (let q = 0; q < 2; q++) { sm.step(n < 2 && i === 0 ? 0.5 : 2, true); n++; }
+      const s = sm.stats(), settled = n >= 8 && Math.abs(s.global - last) < 0.03;
+      last = s.global;
+      $('sweepChip').textContent = `${periods[i].toFixed(2)} d, step ${n}`;
+      if (settled || n >= 30) {
+        const gates = gateList(s);
+        sweepRes.push({ p: periods[i], flux: s.S0, g: s.global, d: s.day, n: s.night, mx: s.max, l1: s.land1530, l2: s.land3060, asr: s.asrGlobal, alb: s.albedo, ice: s.iceFree, pass: gates.filter(x => x[1]).length, of: gates.length, settled });
+        i++; n = 0; drawSweep();
+      }
+      setTimeout(chunk, 0);
+    };
+    chunk();
+  }
+  $('sweepBtn').onclick = startSweep;
+  function drawSweep() {
+    const c = $('sweepChart'); if (!DPR) return; sizeChart(c);
+    const st = sweepStar || STARS[starIdx], anchors = KI_DATA.anchors.filter(a => a.star === st.name);
+    const x0 = st.sweep[0], x1 = st.sweep[1];
+    const vals = [-40, 60].concat(sweepRes.flatMap(r => [C(r.n), C(r.mx)]), anchors.flatMap(a => [C(a.N), C(a.D)]));
+    const lo = Math.floor(Math.min(...vals) / 20) * 20, hi = Math.ceil(Math.max(...vals) / 20) * 20;
+    const yt = []; for (let v = lo; v <= hi; v += 20) yt.push(v);
+    const xt = []; for (let v = Math.ceil(x0 * 2) / 2; v <= x1 + 1e-9; v += 0.5) xt.push(v);
+    const { g, X, Y } = axes(c, x0, x1, lo, hi, xt, yt, v => v.toFixed(1) + ' d');
+    // strip along the bottom: how many of the gates pass at each period
+    const res = sweepRes.slice().sort((a, b) => a.p - b.p), hw = Math.abs(X(st.sweep[2]) - X(0)) / 2;
+    for (const r of res) { g.fillStyle = r.pass === r.of ? css('--pass') : r.pass >= r.of - 1 ? css('--star-soft') : css('--line'); g.fillRect(X(r.p) - hw, c.height - 28 * DPR - 6 * DPR, 2 * hw, 5 * DPR); }
+    const line = (key, col, wd, dash) => { g.strokeStyle = col; g.lineWidth = wd * DPR; g.setLineDash((dash || []).map(v => v * DPR)); g.beginPath(); res.forEach((r, i) => { const x = X(r.p), y = Y(C(r[key])); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]); };
+    line('mx', css('--muted'), 1.25, [2, 3]); line('l2', css('--pass'), 2); line('n', css('--night'), 2); line('g', css('--ink'), 2); line('d', css('--star'), 2.5);
+    const dot = (x, v, col) => { g.beginPath(); g.arc(X(x), Y(C(v)), 4.5 * DPR, 0, 7); g.fillStyle = col; g.fill(); g.lineWidth = 1.5 * DPR; g.strokeStyle = css('--panel'); g.stroke(); };
+    for (const a of anchors) { dot(a.period, a.D, css('--star')); dot(a.period, a.G, css('--ink')); dot(a.period, a.N, css('--night')); dot(a.period, a.l2 + 273.15, css('--pass')); }
+    // the live model's own orbit
+    g.strokeStyle = css('--muted'); g.lineWidth = DPR; g.beginPath(); g.moveTo(X(model.P.period), 10 * DPR); g.lineTo(X(model.P.period), c.height - 28 * DPR); g.stroke();
+    $('sweepKey').innerHTML = `<span style="color:var(--star)">━ dayside</span> &nbsp; <span>━ global</span> &nbsp; <span style="color:var(--night)">━ nightside</span> &nbsp; <span style="color:var(--pass)">━ land at 30–60° of sun</span> &nbsp; <span>┈ warmest cell</span> &nbsp; ● ExoPlaSim. °C against orbital period for ${st.name}; the thin vertical line is the orbit on the map. The strip along the axis is green where every gate passes.`;
+    let h = '<tr><th>period, d</th><th>flux, W/m²</th><th>global</th><th>land 15–30°</th><th>land 30–60°</th><th>warmest</th><th>absorbed, W/m²</th><th>albedo</th><th>open ocean</th><th>gates</th></tr>';
+    for (const r of res) h += `<tr><td class="num">${r.p.toFixed(2)}</td><td class="num">${Math.round(r.flux).toLocaleString('en-US')}</td><td class="num">${C(r.g).toFixed(1)}</td><td class="num">${C(r.l1).toFixed(1)}</td><td class="num">${C(r.l2).toFixed(1)}</td><td class="num">${C(r.mx).toFixed(0)}</td><td class="num">${r.asr.toFixed(0)}</td><td class="num">${r.alb.toFixed(2)}</td><td class="num">${(100 * r.ice).toFixed(0)}%</td><td class="num">${r.pass}/${r.of}${r.settled ? '' : ' *'}</td></tr>`;
+    for (const a of anchors) h += `<tr><td class="num">${a.period.toFixed(2)}</td><td class="num">${Math.round(a.flux).toLocaleString('en-US')}</td><td class="num">${C(a.G).toFixed(1)}</td><td class="num">${a.l1.toFixed(1)}</td><td class="num">${a.l2.toFixed(1)}</td><td class="num">${a.maxC.toFixed(0)}</td><td class="num">${a.asr.toFixed(0)}</td><td class="num">${a.alb.toFixed(2)}</td><td class="num">${(100 * a.iceFree).toFixed(0)}%</td><td>ExoPlaSim${a.note ? ', ' + a.note : ''}</td></tr>`;
+    $('sweepTable').innerHTML = res.length || anchors.length ? h + (res.some(r => !r.settled) ? '<tr><td colspan="10">* still drifting when the sweep moved on.</td></tr>' : '') : '';
+  }
+
+  // ---------- run loop
+  let running = true, frame = 0;
+  function tick() {
+    if (running && !sweeping) {
+      const dt = +$('speed').value;
+      model.step(dt);
+      const s = model.stats();
+      history.push({ y: s.years, g: s.global, d: s.day, n: s.night });
+      if (history.length > 1500) history.splice(0, history.length - 1500);
+      $('yearChip').textContent = `year ${Math.round(s.years).toLocaleString('en-US')}`;
+      if (frame % 5 === 0) orbitLine();
+      drawMap(); if (frame++ % 3 === 0) drawCharts();
+      if (hoverK >= 0) readout();
+      if (frame % 10 === 0 && (layer === 'cls')) drawLegend();
+    }
+    setTimeout(() => requestAnimationFrame(tick), 16);
+  }
+  function setRunning(v) { running = v; $('playBtn').textContent = v ? 'Pause' : 'Run'; $('runChip').textContent = v ? 'running' : 'paused'; $('runChip').classList.toggle('live', v); }
+  $('playBtn').onclick = () => setRunning(!running);
+  function restart(T0) { model.reset({ T0 }); history.length = 0; spin(4); drawMap(); drawCharts(); drawLegend(); }
+  function spin(n) { for (let i = 0; i < n; i++) { model.step(i < 2 ? 0.5 : 2); const s = model.stats(); history.push({ y: s.years, g: s.global, d: s.day, n: s.night }); } }
+  $('resetBare').onclick = () => restart(280);
+  $('resetCold').onclick = () => restart(250);
+  $('copyBtn').onclick = () => {
+    const txt = JSON.stringify(model.P, null, 1); const b = $('copyBtn');
+    const done = m => { b.textContent = m; setTimeout(() => (b.textContent = 'Copy settings as JSON'), 1600); };
+    try { navigator.clipboard.writeText(txt).then(() => done('Copied'), () => done('Copy blocked here')); } catch (e) { done('Copy blocked here'); }
+  };
+  if (window.matchMedia) { const mq = window.matchMedia('(prefers-color-scheme: dark)'); mq.addEventListener && mq.addEventListener('change', () => { drawMap(); drawCharts(); }); }
+  new MutationObserver(() => { drawMap(); drawCharts(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  syncAll(); orbitLine();
+  model.reset({ T0: 280 });
+  spin(14); // a formed climate and early succession in the first frame
+  window.addEventListener('resize', resize);
+  resize(); drawLegend();
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) setRunning(false);
+  requestAnimationFrame(tick);
+})();
+</script>

@@ -939,6 +939,34 @@ class Model(object):
         var = self.inspect(key,savg=True,tavg=True,year=year)
         return var
     
+    def convergence(self,window=10,criteria=None,verbose=True):
+        """Assess spin-up from the slow reservoirs as well as the energy fluxes.
+        
+        Unlike :py:func:`runtobalance() <exoplasim.Model.runtobalance>`, this also looks at the
+        trends of surface temperature, sea-ice volume and snow, and separates energy that is 
+        being stored (e.g. as latent heat of thickening sea ice) from energy that is unaccounted
+        for. See :py:mod:`exoplasim.convergence`.
+        
+        Parameters
+        ----------
+        window : int, optional
+            Number of years at the end of the run to assess
+        criteria : dict, optional
+            Overrides for :py:data:`exoplasim.convergence.DEFAULT_CRITERIA`
+        verbose : bool, optional
+            If True, print the yearly table, the energy budget and the verdict
+            
+        Returns
+        -------
+        (bool, dict)
+            Whether every criterion is met, and each criterion's (value, limit, passed)
+        """
+        import exoplasim.convergence as _conv
+        hist = _conv.history(self.workdir,extension=self.extension)
+        if verbose:
+            print(_conv.report(hist,window=window,criteria=criteria))
+        return _conv.isconverged(hist,window=window,criteria=criteria)
+    
     def gethistory(self,key="ts",mean=True,layer=-1):
         """Return the an array of global annual means of a given variable for each year
             
@@ -2051,7 +2079,8 @@ class Model(object):
                             "MAXSTORMLEN":1024,"NKTRIGGER":0,"toggle":0},
             topomap=None,threshold=5.0e-4,otherargs={},
             aerosol=False,aerobulk=1,apart=5e-09,rhop=1000.0,asource=1,
-            fcoeff=10e-13,aerorad=True,aerofile=None):
+            fcoeff=10e-13,aerorad=True,aerofile=None,
+            oceandiffusion=None,oceandiffusionzonal=1.0,nirabsorption=False):
 
         """Configure the model's namelists and boundary conditions.
         
@@ -2299,6 +2328,22 @@ class Model(object):
     
         mldepth : float, optional
            Depth of the mixed-layer ocean. Default is 50 meters.
+        oceandiffusion : float, optional
+           Horizontal diffusivity of heat in the mixed-layer ocean, in m\ :math:`^2`/s. A crude
+           stand-in for ocean heat transport: heat diffuses down the sea surface temperature
+           gradient between ocean cells, with no flux across coasts, and heat arriving under sea
+           ice melts it from below. The transport scales with ``oceandiffusion*mldepth``, so the
+           two must be chosen together. Default None (no ocean heat transport). The heating of
+           the mixed layer by the transport is written to the output as ``ohdf``.
+        oceandiffusionzonal : float, optional
+           Factor applied to ``oceandiffusion`` in the east-west direction only. Default 1.0
+           (isotropic). Values above 1 mimic the mainly zonal transport of dynamic oceans on
+           synchronously-rotating planets.
+        nirabsorption : bool, optional
+           True/False. If True, and ``startemp`` or ``starspec`` is set, the clear-sky absorption
+           of starlight by water vapour responds to the stellar spectrum: the Lacis & Hansen
+           (1974) solar fit is re-weighted by the stellar flux in three near-infrared bands.
+           Default False, which absorbs the same fraction of the total stellar flux for every star.
         soildepth : float, optional
            Scaling factor for the depth of soil layers (default total of 12.4 meters)
         cpsoil : float, optional
@@ -2921,6 +2966,11 @@ References
         self._edit_namelist("oceanmod_namelist","MLDEPTH",str(mldepth))
         self.mldepth=mldepth
         
+        self._set_oceandiffusion(oceandiffusion,oceandiffusionzonal)
+        self.nirabsorption = nirabsorption
+        if nirabsorption:
+            self._edit_namelist("radmod_namelist","NSWRNIR","1")
+        
         if writefrequency:
             self._edit_namelist("plasim_namelist","NWPD",str(writefrequency))
         self.writefrequency=writefrequency
@@ -3196,6 +3246,15 @@ References
             aerobulk = 1
             aerorad = True
             aerofile = None
+            
+        try:
+            oceandiffusion = _noneparse(cfg[93],float)
+            oceandiffusionzonal = float(cfg[94])
+            nirabsorption = bool(int(cfg[95]))
+        except:
+            oceandiffusion = None
+            oceandiffusionzonal = 1.0
+            nirabsorption = False
         
         self.configure(noutput=noutput,flux=flux,startemp=startemp,starspec=starspec,starradius=starradius,
                     gascon=gascon,pressure=pressure,pressurebroaden=pressurebroaden,
@@ -3225,7 +3284,9 @@ References
                     nstorms=nstorms,stormcapture=stormcapture,topomap=topomap,tlcontrast=tlcontrast,
                     otherargs=otherargs,glaciers=glaciers,threshold=threshold,keplerian=keplerian,
                     meananomaly0=meananomaly0,apart=apart,rhop=rhop,fcoeff=fcoeff,aerobulk=aerobulk,
-                    aerorad=aerorad,aerosol=aerosol,asource=asource,aerofile=aerofile)       
+                    aerorad=aerorad,aerosol=aerosol,asource=asource,aerofile=aerofile,
+                    oceandiffusion=oceandiffusion,oceandiffusionzonal=oceandiffusionzonal,
+                    nirabsorption=nirabsorption)
     
     def modify(self,**kwargs):
         """Modify any already-configured parameters. All parameters accepted by :py:func:`configure() <exoplasim.Model.configure>` can be passed as arguments.
@@ -3766,6 +3827,16 @@ References
                 self.mldepth=value
                 self._edit_namelist("oceanmod_namelist","MLDEPTH",str(self.mldepth))
                 
+            if key=="oceandiffusion":
+                self._set_oceandiffusion(value,self.oceandiffusionzonal)
+                
+            if key=="oceandiffusionzonal":
+                self._set_oceandiffusion(self.oceandiffusion,value)
+                
+            if key=="nirabsorption":
+                self.nirabsorption=value
+                self._edit_namelist("radmod_namelist","NSWRNIR",str(value*1))
+                
             if key=="writefrequency":
                 self.writefrequency=value
                 if self.writefrequency:
@@ -4178,11 +4249,32 @@ References
         cfg.append(str(self.aerobulk))
         cfg.append(str(self.aerorad*1))
         cfg.append(str(self.aerofile))
+        cfg.append(str(self.oceandiffusion))
+        cfg.append(str(self.oceandiffusionzonal))
+        cfg.append(str(self.nirabsorption*1))
         
         print("Writing configuration....\n"+"\n".join(cfg))
         print("Writing to %s...."%filename)
         with open(filename,"w") as cfgf:
             cfgf.write("\n".join(cfg))
+        
+    def _set_oceandiffusion(self,diffusivity,zonalfactor=1.0):
+        """Switch horizontal heat diffusion in the mixed-layer ocean on or off"""
+        
+        self.oceandiffusion = diffusivity
+        self.oceandiffusionzonal = zonalfactor
+        if diffusivity is not None and diffusivity>0:
+            self._edit_namelist("oceanmod_namelist","NHDIFF","1")
+            self._edit_namelist("oceanmod_namelist","HDIFFK",str(float(diffusivity)))
+            self._edit_namelist("oceanmod_namelist","HDIFFZON",str(float(zonalfactor)))
+            self._add_postcodes("example.nl",[330,])
+            self._add_postcodes("snapshot.nl",[330,])
+            self._oceandiffusion_on = True
+        elif getattr(self,"_oceandiffusion_on",False): #Only touch the namelists if it was on
+            self._oceandiffusion_on = False
+            self._edit_namelist("oceanmod_namelist","NHDIFF","0")
+            self._rm_postcodes("example.nl",[330,])
+            self._rm_postcodes("snapshot.nl",[330,])
         
     def _rm_namelist_param(self,namelist,arg,val):
         """Remove an argument from a namelist"""

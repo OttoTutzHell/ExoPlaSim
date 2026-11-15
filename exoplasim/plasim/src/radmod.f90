@@ -27,8 +27,8 @@
       logical :: lstarfile = .false.
       integer :: nstarfile = 0      ! integer version of the logical
       integer :: l_aerorad = 0 ! Aerosol scattering and absorption off (0) or on (1)
-      character(len=80) :: starfile = " " !Name of input stellar spectrum file
-      character(len=80) :: starfilehr = " " !Name of hi-res version of input spectrum
+      character(len=512) :: starfile = " " !Name of input stellar spectrum file
+      character(len=512) :: starfilehr = " " !Name of hi-res version of input spectrum
       character(len=128) :: aerofile = " " ! Name/path to file constaining aerosol optical data
       
       real    :: gsol0   = 1367.0 ! solar constant (set in planet module)
@@ -78,6 +78,16 @@
       
       integer :: nstartemp = 0    ! Switch for using the star's bb temp to determine sw (0/1)
       integer :: nsimplealbedo = 1  ! Compute broadband albedo and use it for both bands
+      integer :: nswrnir = 0      ! Switch for stellar-spectrum-dependent near-IR water vapour
+                                  ! absorption (0 = Lacis & Hansen 1974 solar fit for all stars,
+                                  ! 1 = re-weight the absorption by the stellar flux in three
+                                  ! near-IR bands; needs nstartemp=1)
+      integer, parameter :: NNIRTAB = 201      ! size of the absorption look-up table
+      real, parameter :: nirlogy0 = -7.0       ! log10 of the smallest tabulated water amount
+      real, parameter :: nirdlogy = 0.05       ! table spacing in log10(water amount)
+      real :: nirtab(NNIRTAB) = 0.0            ! absorbed fraction of total stellar flux
+      integer :: nnirready = 0                 ! 1 once nirtab has been filled
+      real :: nirbandratio(3) = 1.0            ! stellar/solar flux fraction, 3 near-IR bands
       
       real :: rcl1(3)=(/0.15,0.30,0.60/) ! cloud albedos spectral range 1
       real :: rcl2(3)=(/0.15,0.30,0.60/) ! cloud albedos spectral range 2
@@ -153,6 +163,45 @@
       real :: solslatsdec      ! sin(lat)*sin(decl) 
       real :: zmuz             ! temporary zenit angle   
 !
+
+      contains
+
+!     =================
+!     FUNCTION SWH2OABS
+!     =================
+
+      elemental real function swh2oabs(pwv)
+!
+!     fraction of the total stellar flux absorbed by an effective
+!     water vapour amount pwv (cm precipitable water, scaled as in swr)
+!
+!     nswrnir=0 : Lacis & Hansen (1974), fitted for the solar spectrum
+!     nswrnir=1 : the same curve mapped onto a near-IR k-distribution
+!                 (Chou & Lee 1996; Chou & Suarez 1999) whose three bands
+!                 are re-weighted by the stellar spectrum (see solarini).
+!                 For a 5772 K blackbody the two are identical.
+!
+      real, intent(in) :: pwv
+      real :: zx,zw
+      integer :: jx
+      if (nswrnir == 0 .or. nnirready == 0) then
+       swh2oabs = 2.9*pwv/((1.+141.5*pwv)**0.635+5.925*pwv)
+      else if (pwv <= 0.) then
+       swh2oabs = 0.
+      else
+       zx = (log10(pwv)-nirlogy0)/nirdlogy
+       if (zx <= 0.) then
+        swh2oabs = nirtab(1)*pwv/10.**nirlogy0
+       else if (zx >= real(NNIRTAB-1)) then
+        swh2oabs = nirtab(NNIRTAB)
+       else
+        jx = int(zx)
+        zw = zx-real(jx)
+        swh2oabs = (1.-zw)*nirtab(jx+1)+zw*nirtab(jx+2)
+       endif
+      endif
+      end function swh2oabs
+
       end module radmod
 
 !
@@ -353,6 +402,8 @@
 !           = zsolar1 x ------------------- x ---------------------
 !                               z1             zgcross1 + zgcross2
 !                       
+        if (nswrnir > 0) call mknirtab(wv1,bb1,wv2,bb2,bbg1,bbg2)
+
         zdenom1 = 0.01/z1
         zdenom2 = 0.01/z2
         
@@ -557,6 +608,8 @@
       call mpbcr(zsolar1)
       call mpbcr(zsolar2)
       call mpbcr(rcoeff)
+      call mpbcrn(nirtab,NNIRTAB)
+      call mpbci(nnirready)
       call mpbcrn(dsnowalb,2)
       call mpbcrn(dsnowalbmn,2)
       call mpbcrn(dsnowalbmx,2)
@@ -578,6 +631,150 @@
       
       end subroutine solarini
       
+!     ===================
+!     SUBROUTINE MKNIRTAB
+!     ===================
+
+      subroutine mknirtab(pwv1,pbb1,pwv2,pbb2,pbg1,pbg2)
+      use radmod
+!
+!     build the look-up table used by swh2oabs when nswrnir=1
+!
+!     The Lacis & Hansen (1974) curve A_LH(y) is the fraction of the
+!     total solar flux absorbed by water vapour. It cannot respond to
+!     the stellar spectrum. Here it is mapped onto the near-IR water
+!     vapour k-distribution of Chou & Lee (1996, J. Atmos. Sci. 53,
+!     1203) as tabulated for the three bands 0.70-1.22, 1.22-2.27 and
+!     2.27-10 micron of Chou & Suarez (1999, NASA TM-104606 vol. 15):
+!
+!       A_sun(u)  = sum_b       sum_k hk(b,k) (1-exp(-xk(k) u))
+!       A_star(u) = sum_b r(b)  sum_k hk(b,k) (1-exp(-xk(k) u))
+!
+!     r(b) = (fraction of the stellar flux in band b)
+!           /(fraction of a 5772 K blackbody's flux in band b)
+!
+!     For each tabulated y, u(y) is found from A_sun(u) = A_LH(y) and
+!     the table holds A_star(u(y)). The pressure and temperature
+!     scaling of the water amount therefore stays that of swr, a
+!     5772 K star reproduces Lacis & Hansen, and only the weighting of
+!     the bands changes. The spectral shape inside each band is taken
+!     to be solar.
+!
+      real :: pwv1(1024),pbb1(1024),pwv2(1024),pbb2(1024)
+      real :: pbg1(1024),pbg2(1024)
+      integer, parameter :: jpk=10, jpb=3
+      real :: zxk(jpk),zhk(jpb,jpk),zedge(jpb+1)
+      real :: zfs(jpb),zfg(jpb),zts,ztg,zmid,zds,zdg,zts2,zcap
+      real :: zy,zalh,zlo,zhi,zu,zas,zax
+      integer :: jb,jk,jt,jit,k
+      real :: zplg,pw
+!     Planck function of a 5772 K blackbody on the wavelength grid in use
+!     (pbg1/pbg2 are on the default grid, which a stellar spectrum file replaces)
+      zplg(pw)=1.0/(1.0e6*pw)**5/(exp(0.0143877735383/(5772.0*pw))-1.0)
+
+      data zxk/0.0010, 0.0133, 0.0422, 0.1334, 0.4217,                  &
+     &         1.334,  5.623,  31.62,  177.8,  1000.0/
+      data zhk/.20673,.08236,.01074,  .03497,.01157,.00360,             &
+     &         .03011,.01133,.00411,  .02260,.01143,.00421,             &
+     &         .01336,.01240,.00389,  .00696,.01258,.00326,             &
+     &         .00441,.01381,.00499,  .00115,.00650,.00465,             &
+     &         .00026,.00244,.00245,  .00000,.00094,.00145/
+      data zedge/0.70e-6,1.22e-6,2.27e-6,10.0e-6/
+!
+!     flux of the star and of a 5772 K blackbody in each band
+!
+      zfs(:)=0.
+      zfg(:)=0.
+      zts=0.
+      ztg=0.
+      zts2=0.
+      do k=1,1023
+       zmid=0.5*(pwv1(k)+pwv1(k+1))
+       zds=0.5*(pbb1(k)+pbb1(k+1))*(pwv1(k+1)-pwv1(k))
+       zdg=0.5*(zplg(pwv1(k))+zplg(pwv1(k+1)))*(pwv1(k+1)-pwv1(k))
+       zts=zts+zds
+       ztg=ztg+zdg
+       do jb=1,jpb
+        if (zmid >= zedge(jb) .and. zmid < zedge(jb+1)) then
+         zfs(jb)=zfs(jb)+zds
+         zfg(jb)=zfg(jb)+zdg
+        endif
+       enddo
+       zmid=0.5*(pwv2(k)+pwv2(k+1))
+       zds=0.5*(pbb2(k)+pbb2(k+1))*(pwv2(k+1)-pwv2(k))
+       zdg=0.5*(zplg(pwv2(k))+zplg(pwv2(k+1)))*(pwv2(k+1)-pwv2(k))
+       zts=zts+zds
+       zts2=zts2+zds
+       ztg=ztg+zdg
+       do jb=1,jpb
+        if (zmid >= zedge(jb) .and. zmid < zedge(jb+1)) then
+         zfs(jb)=zfs(jb)+zds
+         zfg(jb)=zfg(jb)+zdg
+        endif
+       enddo
+      enddo
+!     the segment joining the two wavelength arrays (near 0.75 micron)
+      zds=0.5*(pbb1(1024)+pbb2(1))*(pwv2(1)-pwv1(1024))
+      zdg=0.5*(zplg(pwv1(1024))+zplg(pwv2(1)))*(pwv2(1)-pwv1(1024))
+      zts=zts+zds
+      ztg=ztg+zdg
+      zfs(1)=zfs(1)+zds
+      zfg(1)=zfg(1)+zdg
+
+      do jb=1,jpb
+       if (zfg(jb) > 0. .and. zts > 0.) then
+        nirbandratio(jb)=(zfs(jb)/zts)/(zfg(jb)/ztg)
+       else
+        nirbandratio(jb)=1.
+       endif
+      enddo
+!
+!     the table. The absorbed fraction is capped just below the flux
+!     fraction beyond 0.75 micron so that the band-2 transmissivity in
+!     swr stays positive for any stellar temperature or spectrum.
+!
+      zcap=1.
+      if (zts > 0.) zcap=0.98*zts2/zts
+      do jt=1,NNIRTAB
+       zy=10.**(nirlogy0+real(jt-1)*nirdlogy)
+       zalh=2.9*zy/((1.+141.5*zy)**0.635+5.925*zy)
+!      solve A_sun(u)=A_LH(y) for log10(u) by bisection
+       zlo=-12.
+       zhi=6.
+       do jit=1,60
+        zu=10.**(0.5*(zlo+zhi))
+        zas=0.
+        do jk=1,jpk
+         zas=zas+sum(zhk(:,jk))*(1.-exp(-min(zxk(jk)*zu,80.)))
+        enddo
+        if (zas < zalh) then
+         zlo=0.5*(zlo+zhi)
+        else
+         zhi=0.5*(zlo+zhi)
+        endif
+       enddo
+       zu=10.**(0.5*(zlo+zhi))
+       zax=0.
+       do jk=1,jpk
+        do jb=1,jpb
+         zax=zax+nirbandratio(jb)*zhk(jb,jk)                            &
+     &          *(1.-exp(-min(zxk(jk)*zu,80.)))
+        enddo
+       enddo
+       nirtab(jt)=min(zax,zcap)
+      enddo
+      nnirready=1
+
+      write(nud,*) "Near-IR H2O absorption re-weighted by stellar spectrum"
+      write(nud,*) "Band flux ratios star/5772K (0.70-1.22, 1.22-2.27,",  &
+     &             " 2.27-10 micron):",nirbandratio(:)
+      write(nud,*) "Absorbed fraction of stellar flux at 1 cm H2O:",      &
+     &             swh2oabs(1.0)," (solar fit:",                         &
+     &             2.9/((1.+141.5)**0.635+5.925),")"
+
+      return
+      end subroutine mknirtab
+
 !     =================
 !     SUBROUTINE RADINI
 !     =================
@@ -608,7 +805,7 @@
      &               ,a0o3,a1o3,aco3,bo3,co3,toffo3,o3scale,newrsc,necham,necham6   &
      &               ,nsol,nclouds,nswrcl,nrscat,rcl1,rcl2,acl2,clgray,tpofmt   &
      &               ,acllwr,tswr1,tswr2,tswr3,th2oc,dawn,starbbtemp,nstartemp  &
-     &               ,nsimplealbedo,nstarfile,starfile,starfilehr,minwavel
+     &               ,nsimplealbedo,nstarfile,starfile,starfilehr,minwavel,nswrnir
      namelist/aero_nl/l_source,l_bulk,apart,rhop,fcoeff,l_aerorad,aerofile
 !
 !     namelist parameter:
@@ -789,6 +986,7 @@
 
       call mpbcr(starbbtemp)
       call mpbci(nstartemp)
+      call mpbci(nswrnir)
       call mpbci(nsimplealbedo)
       call mpbci(nstarfile)
       call mpbcr(minwavel)
@@ -849,6 +1047,7 @@
         call solarini
         nstartemp = 1
         call mpbci(nstartemp)
+      call mpbci(nswrnir)
       else if (nstartemp > 0) then
         call solarini
       else
@@ -1903,7 +2102,7 @@
      &           +0.0658*zo3(:)/(1.+(103.6*zo3(:))**3))/zsolar1
        ztwvt(:)=1.
        zwv(:)=zywvt(:)+zbetta*zwvt(:)
-       ztwvtu(:)=1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))  &
+       ztwvtu(:)=1.-swh2oabs(zwv(:))  &
      &            /zsolar2
 !
 !     clear sky scattering (Rayleigh scatterin lower most level only)
@@ -1998,7 +2197,7 @@
 !     downward beam
 !
        zwv(:)=zywvl(:,jlev)
-       ztwv(:)=(1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))   &
+       ztwv(:)=(1.-swh2oabs(zwv(:))   &
      &            /zsolar2)                                             &
      &        /ztwvt(:)
        ztwvt(:)=ztwvt(:)*ztwv(:)
@@ -2007,7 +2206,7 @@
 !
        zwv(:)=zywvt(:)+zbetta*(zwvt(:)-zwvl(:,jlev))
        ztwvu(:)=ztwvtu(:)                                               &
-     &         /(1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))  &
+     &         /(1.-swh2oabs(zwv(:))  &
      &            /zsolar2)
        ztwvtu(:)=ztwvtu(:)/ztwvu(:)
 !

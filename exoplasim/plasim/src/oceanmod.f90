@@ -49,6 +49,9 @@
       real :: taunc             =  0.   ! newtonian cooling timescale (d)
       real :: vdiffkl(NLEV_OCE) = 1.E-4 ! vertikal diffusion coeff. [m**2/s]
       real :: hdiffk(NLEV_OCE)  = 1.E3  ! horizontal diffusion coeff. [m**2/s]
+      real :: hdiffzon          = 1.0   ! factor on hdiffk for the zonal direction
+      real :: oradius           = PLARAD! planet radius used by hdiffo [m]
+                                        ! (set from the planet by oceansetradius)
 !
 !     global integer
 !
@@ -147,7 +150,7 @@
 !
       namelist/oceanmod_nl/ndiag,nout,nfluko,ntspd,nocean,nprint,nprhor    &
     &                  ,nperpetual_ocean,naomod,nlsg,taunc,dlayer,mldepth       &
-    &                  ,vdiffkl,newsurf,hdiffk,nentropy,nhdiff
+    &                  ,vdiffkl,newsurf,hdiffk,nentropy,nhdiff,hdiffzon
 !
 !     get process id
 !
@@ -225,6 +228,7 @@
       call mpbcr(solar_day)
       call mpbcrn(vdiffkl,NLEV_OCE)
       call mpbcrn(hdiffk,NLEV_OCE)
+      call mpbcr(hdiffzon)
       call mpbcrn(dlayer,NLEV_OCE)
       call mpbcr(TFREEZE)
 !
@@ -1314,7 +1318,7 @@
       call mpgagp(zls,yls,1)
 !
       do jlev=1,NLEV_OCE
-       zfac=hdiffk(jlev)/plarad/plarad
+       zfac=hdiffk(jlev)/oradius/oradius
 !
        call mpgagp(zt,zsst(1,jlev),1)
 !
@@ -1364,7 +1368,7 @@
            jlom=jlon-1
            if(zls(jlon,jlat) < 1.) then
             zdtdt(jlon,jlat)=((zdtx(jlon,jlat)-zdtx(jlom,jlat))         &
-     &                        /dlam/cphi(jlat)/cphi(jlat)               &
+     &                        /dlam/cphi(jlat)/cphi(jlat)*hdiffzon      &
      &                       +(zdty(jlon,jlat)-zdty(jlon,jlam))         &
      &                        /dmue(jlat))                              &
      &                      *zfac
@@ -1396,3 +1400,38 @@
 !
       end subroutine hdiffo
 
+
+!     =========================
+!     SUBROUTINE OCEANSETRADIUS
+!     =========================
+
+      subroutine oceansetradius(prad)
+      use oceanmod
+!
+!     set the planet radius used by the horizontal diffusion
+!     (the module default is the Earth radius)
+!
+      real :: prad
+      if (prad > 0.) oradius = prad
+      return
+      end subroutine oceansetradius
+
+!     ======================
+!     SUBROUTINE OCEANGETQHD
+!     ======================
+
+      subroutine oceangetqhd(pqhd,khdiff)
+      use oceanmod
+!
+!     return the heating of the mixed layer by horizontal diffusion
+!     (W/m2; convergence of the diffusive ocean heat transport)
+!
+      real    :: pqhd(NHOR)
+      integer :: khdiff
+      khdiff = nhdiff
+      pqhd(:) = 0.
+      if (nhdiff > 0) then
+       where(yls(:) < 1.) pqhd(:) = yqhd(:)
+      endif
+      return
+      end subroutine oceangetqhd
