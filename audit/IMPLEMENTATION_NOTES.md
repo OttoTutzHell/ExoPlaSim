@@ -248,3 +248,26 @@ From the year-15 state of the 1,091 W/m² run, 15 years each, last 5 averaged (`
 - These are T21 runs with a blackbody star and the biased-high absorption scheme. T42 ran 3 K warmer than T21 at fixed settings in the vault.
 
 **Orbital caveat.** Teegarden's Star b is at 0.0259 AU. Ki-Engir at 5.68 d is at 0.0286 AU, about 3.6 mutual Hill radii away (my estimate, for two roughly Earth-mass planets), and at 6.10 d about 5.4. Neither is a plausible long-term neighbour of planet b. Using this star honestly means Ki-Engir replaces planet b rather than joining it.
+
+## Ki-Engir around TRAPPIST-1 (T21)
+
+Star: Agol et al. 2021 values from the NASA Exoplanet Archive (2,566 K, 0.0898 M☉, log L/L☉ = −3.257), with the TRAPPIST-1 spectrum shipped with ExoPlaSim (`starspec=.../stellarspectra/trap.dat`) rather than a blackbody. Its band weights relative to the Sun are 1.05 / 3.19 / 4.33, against 0.78 / 2.76 / 5.98 for a 2,566 K blackbody. Rotation period set equal to the orbital period in each run. Stock clouds, `nirabsorption` on, 15 years from the Teegarden 1,091 W/m² year-15 state (the 1,000 W/m² run has 13), last 5 averaged (`results/kiengir_trappist1_t21.md`, `.png`; albedo row corrected by hand as before):
+
+| quantity | 1,000 W/m² (5.54 d) | 1,100 W/m² (5.16 d) | 1,200 W/m² (4.83 d) |
+|---|---|---|---|
+| T_s global (K) | 251.2 | 265.8 | 280.8, still warming |
+| T_s dayside / nightside (K) | 268.0 / 234.4 | 279.8 / 251.8 | 292.2 / 269.4 |
+| warmest cell (°C) | 30 | 42 | 57 |
+| dayside land at 15–30° / 30–60° of sun (°C) | −8 / 13 | 3 / 23 | 16 / 36 |
+| nightside land below freezing | 100% | 100% | 53% |
+| ice-free share of the ocean | 0.24 | 0.32 | 0.52 |
+| planetary albedo | 0.258 | 0.225 | 0.183 |
+| absorbed shortwave (W/m²) | 186 | 213 | 245 |
+| land rain (mm/yr) | 689 | 948 | 943 |
+| TOA net, last year (W/m²) | −0.8 | −0.5 | +1.1 |
+
+- Around TRAPPIST-1 the planet is about 8 K warmer than around Teegarden's Star at the same flux (265.8 K at 1,100 against 258.2 K at 1,091), because the redder light is absorbed more and reflected less.
+- 1,000 and 1,100 W/m² are settled. 1,200 W/m² is still warming with the sea ice retreating, as 1,300 was around Teegarden's Star.
+- The temperate window is between 1,100 and 1,200 W/m². By interpolation, about 1,150 W/m², a 4.99-day orbit at 0.0256 AU, should give land near 10 °C at 15–30° of sun and 30 °C at 30–60° with the warmest cell near 50 °C. That orbit has not been run.
+- **Orbital caveat.** 0.0256 AU lies between TRAPPIST-1 d (0.0223 AU, 4.05 d) and e (0.0293 AU, 6.10 d), about 6 mutual Hill radii from each by my estimate, against roughly 12 between d and e themselves. A seventh planet there would probably break the resonant chain. The consistent reading is that Ki-Engir is planet e moved inward, with e's own radius and gravity, which canon already matches.
+- Two faults found on the way and fixed: with a spectrum file, the 5,772 K reference in `mknirtab` was integrated on the wrong wavelength grid; and spectrum file paths longer than 80 characters were silently truncated.
