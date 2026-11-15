@@ -1,7 +1,7 @@
 """Summarise ExoPlaSim Ki-Engir runs as anchors for the planet model, and export two fields."""
 import sys, json, glob, numpy as np, netCDF4 as nc
 RUNS=[("Teegarden's Star",3034,7.22e-4,0.097,6.097,"tg_stock",""),("Teegarden's Star",3034,7.22e-4,0.097,5.677,"tg_f1200",""),("Teegarden's Star",3034,7.22e-4,0.097,5.346,"tg_f1300","still warming"),
-      ("TRAPPIST-1",2566,5.53e-4,0.0898,5.539,"tr_f1000",""),("TRAPPIST-1",2566,5.53e-4,0.0898,5.156,"tr_f1100",""),("TRAPPIST-1",2566,5.53e-4,0.0898,4.831,"tr_f1200","still warming")]
+      ("TRAPPIST-1",2566,5.53e-4,0.0898,5.539,"tr_f1000",""),("TRAPPIST-1",2566,5.53e-4,0.0898,5.156,"tr_f1100",""),("TRAPPIST-1",2566,5.53e-4,0.0898,5.0,"tr_p500",""),("TRAPPIST-1",2566,5.53e-4,0.0898,4.831,"tr_f1200","still warming")]
 out=[]; fields={}
 for star,T,L,M,per,run,note in RUNS:
     fs=sorted(glob.glob('runs/%s/MOST.0*.nc'%run))[-5:]; acc={}

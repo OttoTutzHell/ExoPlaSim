@@ -271,3 +271,23 @@ Star: Agol et al. 2021 values from the NASA Exoplanet Archive (2,566 K, 0.0898 M
 - The temperate window is between 1,100 and 1,200 W/m². By interpolation, about 1,150 W/m², a 4.99-day orbit at 0.0256 AU, should give land near 10 °C at 15–30° of sun and 30 °C at 30–60° with the warmest cell near 50 °C. That orbit has not been run.
 - **Orbital caveat.** 0.0256 AU lies between TRAPPIST-1 d (0.0223 AU, 4.05 d) and e (0.0293 AU, 6.10 d), about 6 mutual Hill radii from each by my estimate, against roughly 12 between d and e themselves. A seventh planet there would probably break the resonant chain. The consistent reading is that Ki-Engir is planet e moved inward, with e's own radius and gravity, which canon already matches.
 - Two faults found on the way and fixed: with a spectrum file, the 5,772 K reference in `mknirtab` was integrated on the wrong wavelength grid; and spectrum file paths longer than 80 characters were silently truncated.
+
+### The interpolated orbit, run: 5.0 days around TRAPPIST-1
+
+1,146 W/m² at 0.0256 AU, rotation 5.0 d, same settings, 15 years from the 1,100 W/m² year-15 state, last 5 averaged:
+
+| quantity | value |
+|---|---|
+| T_s global / dayside / nightside (K) | 272.8 / 285.4 / 260.1 |
+| warmest cell (°C) | 49 |
+| dayside land at 15–30° / 30–60° of sun (°C) | 9.3 / 29.0 |
+| nightside land below freezing | 88% |
+| ice-free share of the ocean | 0.38 |
+| planetary albedo | 0.209 |
+| absorbed shortwave (W/m²) | 227 |
+| land rain (mm/yr) | 969 |
+| TOA net, last 8 years (W/m²) | +0.08 |
+
+- It matches the interpolation and keeps the vault's bounds: absorbed 227 W/m² against the 295 ± 15 limit, warmest cell under 50 °C, most nightside land frozen.
+- Not converged by the stricter test: still warming 0.09 K/yr with sea ice thinning 0.5% a year. The equilibrium is a little warmer than these numbers, so the warmest cell will probably pass 50 °C. A slightly longer orbit (5.05–5.1 d) would leave margin.
+- Polity cells at T21, 2 m air temperature, no elevation correction: Quilatria 21.1 °C, Quedros 20.9, Deep Bay 31.5, Twin Rivers A 15.8, Desert Valley 39.6, Hot Desert River 25.1. Rain in the same cells: 0, 12, 0, 3, 100 and 1,195 mm/yr. **The western heartland is still desert.** Changing the star and orbit fixes the temperature level without straining the clouds; it does not move the rain.
