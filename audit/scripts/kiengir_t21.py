@@ -10,7 +10,9 @@ for a in sys.argv[5:]:
     if k=="ncpus": ncpu=int(v)
     elif k=="recompile": recompile=bool(int(v))   # needed once: the executable cache ignores precision
     elif "@" in k: other[k]=v
-    else: kw[k]=float(v)
+    else:
+        try: kw[k]=float(v)
+        except ValueError: kw[k]=v      # e.g. starspec=/path/to/spectrum.dat
 os.makedirs("runs",exist_ok=True); os.chdir("runs")
 m=exo.Model(workdir=name,modelname=name,resolution="T21",layers=10,ncpus=ncpu,precision=8,outputtype=".nc",
             hyperthreading=False,recompile=recompile,mpi_opts="--bind-to none --oversubscribe")

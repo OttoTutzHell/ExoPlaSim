@@ -27,8 +27,8 @@
       logical :: lstarfile = .false.
       integer :: nstarfile = 0      ! integer version of the logical
       integer :: l_aerorad = 0 ! Aerosol scattering and absorption off (0) or on (1)
-      character(len=80) :: starfile = " " !Name of input stellar spectrum file
-      character(len=80) :: starfilehr = " " !Name of hi-res version of input spectrum
+      character(len=512) :: starfile = " " !Name of input stellar spectrum file
+      character(len=512) :: starfilehr = " " !Name of hi-res version of input spectrum
       character(len=128) :: aerofile = " " ! Name/path to file constaining aerosol optical data
       
       real    :: gsol0   = 1367.0 ! solar constant (set in planet module)
@@ -667,6 +667,10 @@
       real :: zfs(jpb),zfg(jpb),zts,ztg,zmid,zds,zdg,zts2,zcap
       real :: zy,zalh,zlo,zhi,zu,zas,zax
       integer :: jb,jk,jt,jit,k
+      real :: zplg,pw
+!     Planck function of a 5772 K blackbody on the wavelength grid in use
+!     (pbg1/pbg2 are on the default grid, which a stellar spectrum file replaces)
+      zplg(pw)=1.0/(1.0e6*pw)**5/(exp(0.0143877735383/(5772.0*pw))-1.0)
 
       data zxk/0.0010, 0.0133, 0.0422, 0.1334, 0.4217,                  &
      &         1.334,  5.623,  31.62,  177.8,  1000.0/
@@ -687,7 +691,7 @@
       do k=1,1023
        zmid=0.5*(pwv1(k)+pwv1(k+1))
        zds=0.5*(pbb1(k)+pbb1(k+1))*(pwv1(k+1)-pwv1(k))
-       zdg=0.5*(pbg1(k)+pbg1(k+1))*(pwv1(k+1)-pwv1(k))
+       zdg=0.5*(zplg(pwv1(k))+zplg(pwv1(k+1)))*(pwv1(k+1)-pwv1(k))
        zts=zts+zds
        ztg=ztg+zdg
        do jb=1,jpb
@@ -698,7 +702,7 @@
        enddo
        zmid=0.5*(pwv2(k)+pwv2(k+1))
        zds=0.5*(pbb2(k)+pbb2(k+1))*(pwv2(k+1)-pwv2(k))
-       zdg=0.5*(pbg2(k)+pbg2(k+1))*(pwv2(k+1)-pwv2(k))
+       zdg=0.5*(zplg(pwv2(k))+zplg(pwv2(k+1)))*(pwv2(k+1)-pwv2(k))
        zts=zts+zds
        zts2=zts2+zds
        ztg=ztg+zdg
@@ -711,7 +715,7 @@
       enddo
 !     the segment joining the two wavelength arrays (near 0.75 micron)
       zds=0.5*(pbb1(1024)+pbb2(1))*(pwv2(1)-pwv1(1024))
-      zdg=0.5*(pbg1(1024)+pbg2(1))*(pwv2(1)-pwv1(1024))
+      zdg=0.5*(zplg(pwv1(1024))+zplg(pwv2(1)))*(pwv2(1)-pwv1(1024))
       zts=zts+zds
       ztg=ztg+zdg
       zfs(1)=zfs(1)+zds
