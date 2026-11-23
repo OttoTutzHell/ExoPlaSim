@@ -275,7 +275,7 @@ else
     echo "">precisionargsx
 fi
 
-(($nopt)) && sed -i.bak '3s/$/ '$optimization'/' compilerargs && rm -rf compilerargs.bak
+(($nopt)) && sed -i.bak '/^MOST_F90_OPTS=/s/$/ '"$optimization"'/' compilerargs && rm -rf compilerargs.bak
 
 cat compilerargs $dbgs../bld/precisionargsx make_plasim > makefile
 
@@ -286,7 +286,8 @@ export OCEANCOUP=cpl_stub
 export FFTMOD=$fftopt
 #cat makefile
 
-make -e || exit 1
+njobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+make -e -j "$njobs" || exit 1
 [ -x ./most_snow_build$prec ] && ./most_snow_build$prec
 [ -x ./most_ice_build$prec ] && ./most_ice_build$prec
 cp plasim.x ../bin/$executable || exit 1

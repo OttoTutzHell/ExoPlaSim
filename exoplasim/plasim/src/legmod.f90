@@ -154,6 +154,25 @@ do n=1,NTP1
    
 enddo
 
+! Fold physics filters into the Legendre matrices once so they are not
+! re-multiplied on every inner-loop iteration of every timestep.
+do jlat = 1 , NLPP
+   lm = 0
+   do m = 1 , NTP1
+      do n = m , NTP1
+         lm = lm + 1
+         qi(lm,jlat) = qi(lm,jlat) * skspgp(n)
+         qj(lm,jlat) = qj(lm,jlat) * skspgp(n)
+         qu(lm,jlat) = qu(lm,jlat) * skspgp(n)
+         qv(lm,jlat) = qv(lm,jlat) * skspgp(n)
+         qc(lm,jlat) = qc(lm,jlat) * skgpsp(n)
+         qe(lm,jlat) = qe(lm,jlat) * skgpsp(n)
+         qm(lm,jlat) = qm(lm,jlat) * skgpsp(n)
+         qq(lm,jlat) = qq(lm,jlat) * skgpsp(n)
+      enddo ! n
+   enddo ! m
+enddo ! jlat
+
 if (mypid==NROOT) then
    write(nud,*)"*************************************************"
    write(nud,*)"* GP->SP Physics Filter Coefficients:           *"
@@ -181,40 +200,49 @@ implicit none
 real, intent(in ) :: fc(2,NLON/2,NLPP)
 real, intent(out) :: sp(2,NESP/2)
 
+integer :: k ! Index for southern latitude
 integer :: l ! Index for latitude
 integer :: m ! Index for zonal wavenumber
-integer :: n ! Index for total wavenumber
-integer :: w ! Index for spherical harmonic
+integer :: w, w0, w1 ! Index for spherical harmonic
+real :: f1, f2, f1s, f2s, f1a, f2a
 
 sp(:,:) = 0.0
 
 if (NLPP < NLAT) then  ! Universal (parallel executable) version
 !----------------------------------------------------------------------
   do l = 1 , NLPP
-    w = 1
+    w0 = 1
     do m = 1 , NTP1
-      do n = m , NTP1
-        sp(1,w) = sp(1,w) + qc(w,l) * fc(1,m,l)*skgpsp(n)
-        sp(2,w) = sp(2,w) + qc(w,l) * fc(2,m,l)*skgpsp(n)
-        w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      f1 = fc(1,m,l)
+      f2 = fc(2,m,l)
+      do w = w0 , w1
+        sp(1,w) = sp(1,w) + qc(w,l) * f1
+        sp(2,w) = sp(2,w) + qc(w,l) * f2
+      enddo ! w
+      w0 = w1 + 1
     enddo ! m
   enddo ! l
 else                   ! Single CPU version (symmetry conserving)
 !----------------------------------------------------------------------
   do l = 1 , NLAT/2
-    w = 1
+    k = NLAT + 1 - l
+    w0 = 1
     do m = 1 , NTP1
-      do n = m , NTP1
-        if (mod(m+n,2) == 0) then ! Symmetric modes
-          sp(1,w) = sp(1,w) + qc(w,l) * (fc(1,m,l) + fc(1,m,NLAT+1-l))*skgpsp(n)
-          sp(2,w) = sp(2,w) + qc(w,l) * (fc(2,m,l) + fc(2,m,NLAT+1-l))*skgpsp(n)
-        else                      ! Antisymmetric modes
-          sp(1,w) = sp(1,w) + qc(w,l) * (fc(1,m,l) - fc(1,m,NLAT+1-l))*skgpsp(n)
-          sp(2,w) = sp(2,w) + qc(w,l) * (fc(2,m,l) - fc(2,m,NLAT+1-l))*skgpsp(n)
-        endif
-        w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      f1s = fc(1,m,l) + fc(1,m,k)
+      f2s = fc(2,m,l) + fc(2,m,k)
+      f1a = fc(1,m,l) - fc(1,m,k)
+      f2a = fc(2,m,l) - fc(2,m,k)
+      do w = w0 , w1 , 2
+        sp(1,w) = sp(1,w) + qc(w,l) * f1s
+        sp(2,w) = sp(2,w) + qc(w,l) * f2s
+      enddo
+      do w = w0 + 1 , w1 , 2
+        sp(1,w) = sp(1,w) + qc(w,l) * f1a
+        sp(2,w) = sp(2,w) + qc(w,l) * f2a
+      enddo
+      w0 = w1 + 1
     enddo ! m
   enddo ! l
 !----------------------------------------------------------------------
@@ -236,19 +264,24 @@ real :: fc(2,NLON/2,NLPP) ! Fourier coefficients
 
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
+real :: f1, f2
 
 fc(:,:,:) = 0.0
 
 do l = 1 , NLPP
-   w = 1  
+   w0 = 1
    do m = 1 , NTP1
-      do n = m , NTP1
-         fc(1,m,l) = fc(1,m,l) + qi(w,l) * sp(1,w)*skspgp(n)
-         fc(2,m,l) = fc(2,m,l) + qi(w,l) * sp(2,w)*skspgp(n)
-         w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      f1 = 0.0
+      f2 = 0.0
+      do w = w0 , w1
+         f1 = f1 + qi(w,l) * sp(1,w)
+         f2 = f2 + qi(w,l) * sp(2,w)
+      enddo ! w
+      fc(1,m,l) = f1
+      fc(2,m,l) = f2
+      w0 = w1 + 1
    enddo ! m
 enddo ! l
 return
@@ -268,19 +301,24 @@ real :: fc(2,NLON/2,NLPP) ! Fourier coefficients
 
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
+real :: f1, f2
 
 fc(:,:,:) = 0.0
 
 do l = 1 , NLPP
-   w = 1  
+   w0 = 1
    do m = 1 , NTP1
-      do n = m , NTP1
-         fc(1,m,l) = fc(1,m,l) + qj(w,l) * sp(1,w)*skspgp(n)
-         fc(2,m,l) = fc(2,m,l) + qj(w,l) * sp(2,w)*skspgp(n)
-         w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      f1 = 0.0
+      f2 = 0.0
+      do w = w0 , w1
+         f1 = f1 + qj(w,l) * sp(1,w)
+         f2 = f2 + qj(w,l) * sp(2,w)
+      enddo ! w
+      fc(1,m,l) = f1
+      fc(2,m,l) = f2
+      w0 = w1 + 1
    enddo ! m
 enddo ! l
 return
@@ -317,13 +355,12 @@ real :: pd(2,NESP/2,NLEV)
 real :: pz(2,NESP/2,NLEV)
 real :: pu(2,NLON/2,NLPP,NLEV)
 real :: pv(2,NLON/2,NLPP,NLEV)
-real :: zsave
+real :: zsave, u1, u2, v1, v2
 
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
 integer :: v ! Loop index for level
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
 
 pu(:,:,:,:) = 0.0
 pv(:,:,:,:) = 0.0
@@ -332,15 +369,24 @@ do v = 1 , NLEV
   zsave = pz(1,2,v)
   pz(1,2,v) = zsave - plavor
   do l = 1 , NLPP
-    w = 1
+    w0 = 1
     do m = 1 , NTP1
-      do n = m , NTP1
-        pu(1,m,l,v)=pu(1,m,l,v)+qv(w,l)*pz(1,w,v)*skspgp(n)+qu(w,l)*pd(2,w,v)*skspgp(n)
-        pu(2,m,l,v)=pu(2,m,l,v)+qv(w,l)*pz(2,w,v)*skspgp(n)-qu(w,l)*pd(1,w,v)*skspgp(n)
-        pv(1,m,l,v)=pv(1,m,l,v)+qu(w,l)*pz(2,w,v)*skspgp(n)-qv(w,l)*pd(1,w,v)*skspgp(n)
-        pv(2,m,l,v)=pv(2,m,l,v)-qu(w,l)*pz(1,w,v)*skspgp(n)-qv(w,l)*pd(2,w,v)*skspgp(n)
-        w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      u1 = 0.0
+      u2 = 0.0
+      v1 = 0.0
+      v2 = 0.0
+      do w = w0 , w1
+        u1 = u1 + qv(w,l)*pz(1,w,v) + qu(w,l)*pd(2,w,v)
+        u2 = u2 + qv(w,l)*pz(2,w,v) - qu(w,l)*pd(1,w,v)
+        v1 = v1 + qu(w,l)*pz(2,w,v) - qv(w,l)*pd(1,w,v)
+        v2 = v2 - qu(w,l)*pz(1,w,v) - qv(w,l)*pd(2,w,v)
+      enddo ! w
+      pu(1,m,l,v) = u1
+      pu(2,m,l,v) = u2
+      pv(1,m,l,v) = v1
+      pv(2,m,l,v) = v2
+      w0 = w1 + 1
     enddo ! m
   enddo ! l
   pz(1,2,v) = zsave
@@ -365,9 +411,10 @@ real :: pv(2,NLON/2,NLPP,NLEV)
 integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
 integer :: v ! Loop index for level
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
+real :: u1, u2, v1, v2
+real :: u1p, u2p, u1m, u2m, v1p, v2p, v1m, v2m
 
 pd(:,:,:) = 0.0
 pz(:,:,:) = 0.0
@@ -376,15 +423,20 @@ if (NLPP < NLAT) then  ! Universal (parallel executable) version
 !----------------------------------------------------------------------
 do v = 1 , NLEV
   do l = 1 , NLPP
-    w = 1
+    w0 = 1
     do m = 1 , NTP1
-      do n = m , NTP1
-        pz(1,w,v) = pz(1,w,v)+qe(w,l)*pu(1,m,l,v)*skgpsp(n)-qm(w,l)*pv(2,m,l,v)*skgpsp(n)
-        pz(2,w,v) = pz(2,w,v)+qe(w,l)*pu(2,m,l,v)*skgpsp(n)+qm(w,l)*pv(1,m,l,v)*skgpsp(n)
-        pd(1,w,v) = pd(1,w,v)-qe(w,l)*pv(1,m,l,v)*skgpsp(n)-qm(w,l)*pu(2,m,l,v)*skgpsp(n)
-        pd(2,w,v) = pd(2,w,v)-qe(w,l)*pv(2,m,l,v)*skgpsp(n)+qm(w,l)*pu(1,m,l,v)*skgpsp(n)
-        w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      u1 = pu(1,m,l,v)
+      u2 = pu(2,m,l,v)
+      v1 = pv(1,m,l,v)
+      v2 = pv(2,m,l,v)
+      do w = w0 , w1
+        pz(1,w,v) = pz(1,w,v) + qe(w,l)*u1 - qm(w,l)*v2
+        pz(2,w,v) = pz(2,w,v) + qe(w,l)*u2 + qm(w,l)*v1
+        pd(1,w,v) = pd(1,w,v) - qe(w,l)*v1 - qm(w,l)*u2
+        pd(2,w,v) = pd(2,w,v) - qe(w,l)*v2 + qm(w,l)*u1
+      enddo ! w
+      w0 = w1 + 1
     enddo ! m
   enddo ! l
 enddo ! v
@@ -393,30 +445,30 @@ else                   ! Single CPU version (symmetry conserving)
 do v = 1 , NLEV
   do l = 1 , NLAT/2
     k = NLAT+1-l
-    w = 1
+    w0 = 1
     do m = 1 , NTP1
-      do n = m , NTP1
-        if (mod(m+n,2) == 0) then ! symmetric -----------------
-          pz(1,w,v) = pz(1,w,v) + qe(w,l) * (pu(1,m,l,v)-pu(1,m,k,v))*skgpsp(n) &
-                                - qm(w,l) * (pv(2,m,l,v)+pv(2,m,k,v))*skgpsp(n)
-          pz(2,w,v) = pz(2,w,v) + qe(w,l) * (pu(2,m,l,v)-pu(2,m,k,v))*skgpsp(n) &
-                                + qm(w,l) * (pv(1,m,l,v)+pv(1,m,k,v))*skgpsp(n)
-          pd(1,w,v) = pd(1,w,v) - qe(w,l) * (pv(1,m,l,v)-pv(1,m,k,v))*skgpsp(n) &
-                                - qm(w,l) * (pu(2,m,l,v)+pu(2,m,k,v))*skgpsp(n)
-          pd(2,w,v) = pd(2,w,v) - qe(w,l) * (pv(2,m,l,v)-pv(2,m,k,v))*skgpsp(n) &
-                                + qm(w,l) * (pu(1,m,l,v)+pu(1,m,k,v))*skgpsp(n)
-        else ! ---------------- antisymmetric -----------------
-          pz(1,w,v) = pz(1,w,v) + qe(w,l) * (pu(1,m,l,v)+pu(1,m,k,v))*skgpsp(n) &
-                                - qm(w,l) * (pv(2,m,l,v)-pv(2,m,k,v))*skgpsp(n)
-          pz(2,w,v) = pz(2,w,v) + qe(w,l) * (pu(2,m,l,v)+pu(2,m,k,v))*skgpsp(n) &
-                                + qm(w,l) * (pv(1,m,l,v)-pv(1,m,k,v))*skgpsp(n)
-          pd(1,w,v) = pd(1,w,v) - qe(w,l) * (pv(1,m,l,v)+pv(1,m,k,v))*skgpsp(n) &
-                                - qm(w,l) * (pu(2,m,l,v)-pu(2,m,k,v))*skgpsp(n)
-          pd(2,w,v) = pd(2,w,v) - qe(w,l) * (pv(2,m,l,v)+pv(2,m,k,v))*skgpsp(n) &
-                                + qm(w,l) * (pu(1,m,l,v)-pu(1,m,k,v))*skgpsp(n)
-        endif
-        w = w + 1
-      enddo ! n
+      w1 = w0 + NTP1 - m
+      u1m = pu(1,m,l,v) - pu(1,m,k,v)
+      u2m = pu(2,m,l,v) - pu(2,m,k,v)
+      u1p = pu(1,m,l,v) + pu(1,m,k,v)
+      u2p = pu(2,m,l,v) + pu(2,m,k,v)
+      v1m = pv(1,m,l,v) - pv(1,m,k,v)
+      v2m = pv(2,m,l,v) - pv(2,m,k,v)
+      v1p = pv(1,m,l,v) + pv(1,m,k,v)
+      v2p = pv(2,m,l,v) + pv(2,m,k,v)
+      do w = w0 , w1 , 2
+        pz(1,w,v) = pz(1,w,v) + qe(w,l)*u1m - qm(w,l)*v2p
+        pz(2,w,v) = pz(2,w,v) + qe(w,l)*u2m + qm(w,l)*v1p
+        pd(1,w,v) = pd(1,w,v) - qe(w,l)*v1m - qm(w,l)*u2p
+        pd(2,w,v) = pd(2,w,v) - qe(w,l)*v2m + qm(w,l)*u1p
+      enddo
+      do w = w0 + 1 , w1 , 2
+        pz(1,w,v) = pz(1,w,v) + qe(w,l)*u1p - qm(w,l)*v2m
+        pz(2,w,v) = pz(2,w,v) + qe(w,l)*u2p + qm(w,l)*v1m
+        pd(1,w,v) = pd(1,w,v) - qe(w,l)*v1p - qm(w,l)*u2m
+        pd(2,w,v) = pd(2,w,v) - qe(w,l)*v2p + qm(w,l)*u1m
+      enddo
+      w0 = w1 + 1
     enddo ! m
   enddo ! l
 enddo ! v
@@ -443,9 +495,10 @@ real, intent(out) :: q(2,NESP/2,NLEV)
 integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
 integer :: v ! Loop index for level
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
+real :: qn1, qn2, uq1, uq2, vq1, vq2
+real :: qn1p, qn2p, qn1m, qn2m, uq1p, uq2p, uq1m, uq2m, vq1p, vq2p, vq1m, vq2m
 
 q(:,:,:) = 0.0
 
@@ -453,15 +506,20 @@ if (NLPP < NLAT) then  ! Universal (parallel executable) version
 !----------------------------------------------------------------------
 do v = 1 , NLEV
  do l = 1 , NLPP
-  w = 1
+  w0 = 1
   do m = 1 , NTP1
-   do n = m , NTP1
-    q(1,w,v)=q(1,w,v)+qe(w,l)*vq(1,m,l,v)*skgpsp(n)+&
-&            qc(w,l)*qn(1,m,l,v)*skgpsp(n)+qm(w,l)*uq(2,m,l,v)*skgpsp(n)
-    q(2,w,v)=q(2,w,v)+qe(w,l)*vq(2,m,l,v)*skgpsp(n)+&
-&            qc(w,l)*qn(2,m,l,v)*skgpsp(n)-qm(w,l)*uq(1,m,l,v)*skgpsp(n)
-    w = w + 1
-   enddo ! n
+   w1 = w0 + NTP1 - m
+   qn1 = qn(1,m,l,v)
+   qn2 = qn(2,m,l,v)
+   uq1 = uq(1,m,l,v)
+   uq2 = uq(2,m,l,v)
+   vq1 = vq(1,m,l,v)
+   vq2 = vq(2,m,l,v)
+   do w = w0 , w1
+    q(1,w,v) = q(1,w,v) + qe(w,l)*vq1 + qc(w,l)*qn1 + qm(w,l)*uq2
+    q(2,w,v) = q(2,w,v) + qe(w,l)*vq2 + qc(w,l)*qn2 - qm(w,l)*uq1
+   enddo ! w
+   w0 = w1 + 1
   enddo ! m
  enddo ! l
 enddo ! v
@@ -470,26 +528,30 @@ else                   ! Single CPU version (symmetry conserving)
 do v = 1 , NLEV
  do l = 1 , NLAT/2
   k = NLAT+1-l
-  w = 1
+  w0 = 1
   do m = 1 , NTP1
-   do n = m , NTP1
-    if (mod(m+n,2) == 0) then ! symmetric -----------------
-      q(1,w,v)=q(1,w,v)+qe(w,l)*(vq(1,m,l,v)-vq(1,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(qn(1,m,l,v)+qn(1,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(uq(2,m,l,v)+uq(2,m,k,v))*skgpsp(n)
-      q(2,w,v)=q(2,w,v)+qe(w,l)*(vq(2,m,l,v)-vq(2,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(qn(2,m,l,v)+qn(2,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(uq(1,m,l,v)+uq(1,m,k,v))*skgpsp(n)
-    else ! ---------------- antisymmetric -----------------
-      q(1,w,v)=q(1,w,v)+qe(w,l)*(vq(1,m,l,v)+vq(1,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(qn(1,m,l,v)-qn(1,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(uq(2,m,l,v)-uq(2,m,k,v))*skgpsp(n)
-      q(2,w,v)=q(2,w,v)+qe(w,l)*(vq(2,m,l,v)+vq(2,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(qn(2,m,l,v)-qn(2,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(uq(1,m,l,v)-uq(1,m,k,v))*skgpsp(n)
-    endif
-    w = w + 1
-   enddo ! n
+   w1 = w0 + NTP1 - m
+   vq1m = vq(1,m,l,v) - vq(1,m,k,v)
+   vq2m = vq(2,m,l,v) - vq(2,m,k,v)
+   vq1p = vq(1,m,l,v) + vq(1,m,k,v)
+   vq2p = vq(2,m,l,v) + vq(2,m,k,v)
+   qn1p = qn(1,m,l,v) + qn(1,m,k,v)
+   qn2p = qn(2,m,l,v) + qn(2,m,k,v)
+   qn1m = qn(1,m,l,v) - qn(1,m,k,v)
+   qn2m = qn(2,m,l,v) - qn(2,m,k,v)
+   uq1p = uq(1,m,l,v) + uq(1,m,k,v)
+   uq2p = uq(2,m,l,v) + uq(2,m,k,v)
+   uq1m = uq(1,m,l,v) - uq(1,m,k,v)
+   uq2m = uq(2,m,l,v) - uq(2,m,k,v)
+   do w = w0 , w1 , 2
+      q(1,w,v) = q(1,w,v) + qe(w,l)*vq1m + qc(w,l)*qn1p + qm(w,l)*uq2p
+      q(2,w,v) = q(2,w,v) + qe(w,l)*vq2m + qc(w,l)*qn2p - qm(w,l)*uq1p
+   enddo
+   do w = w0 + 1 , w1 , 2
+      q(1,w,v) = q(1,w,v) + qe(w,l)*vq1p + qc(w,l)*qn1m + qm(w,l)*uq2m
+      q(2,w,v) = q(2,w,v) + qe(w,l)*vq2p + qc(w,l)*qn2m - qm(w,l)*uq1m
+   enddo
+   w0 = w1 + 1
   enddo ! m
  enddo ! l
 enddo ! v
@@ -520,9 +582,12 @@ real, intent(out) :: z(2,NESP/2,NLEV)
 integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
-integer :: n ! Loop index for total wavenumber n
 integer :: v ! Loop index for level
-integer :: w ! Loop index for spectral mode
+integer :: w, w0, w1 ! Loop index for spectral mode
+real :: tn1, tn2, fu1, fu2, fv1, fv2, ke1, ke2, ut1, ut2, vt1, vt2
+real :: tn1p, tn2p, tn1m, tn2m, fu1p, fu2p, fu1m, fu2m
+real :: fv1p, fv2p, fv1m, fv2m, ke1p, ke2p, ke1m, ke2m
+real :: ut1p, ut2p, ut1m, ut2m, vt1p, vt2p, vt1m, vt2m
 
 d(:,:,:) = 0.0
 t(:,:,:) = 0.0
@@ -532,23 +597,24 @@ if (NLPP < NLAT) then  ! Universal (parallel executable) version
 !----------------------------------------------------------------------
 do v = 1 , NLEV
  do l = 1 , NLPP
-  w = 1
+  w0 = 1
   do m = 1 , NTP1
-   do n = m , NTP1
-    d(1,w,v)=d(1,w,v)+qq(w,l)*ke(1,m,l,v)*skgpsp(n) &
-&                    -qe(w,l)*fv(1,m,l,v)*skgpsp(n)-qm(w,l)*fu(2,m,l,v)*skgpsp(n)
-    d(2,w,v)=d(2,w,v)+qq(w,l)*ke(2,m,l,v)*skgpsp(n) &
-&                    -qe(w,l)*fv(2,m,l,v)*skgpsp(n)+qm(w,l)*fu(1,m,l,v)*skgpsp(n)
-    t(1,w,v)=t(1,w,v)+qe(w,l)*vt(1,m,l,v)*skgpsp(n) &
-&                    +qc(w,l)*tn(1,m,l,v)*skgpsp(n)+qm(w,l)*ut(2,m,l,v)*skgpsp(n)
-    t(2,w,v)=t(2,w,v)+qe(w,l)*vt(2,m,l,v)*skgpsp(n) &
-&                    +qc(w,l)*tn(2,m,l,v)*skgpsp(n)-qm(w,l)*ut(1,m,l,v)*skgpsp(n)
-    z(1,w,v)=z(1,w,v)+qe(w,l)*fu(1,m,l,v)*skgpsp(n) &
-&                    -qm(w,l)*fv(2,m,l,v)*skgpsp(n)
-    z(2,w,v)=z(2,w,v)+qe(w,l)*fu(2,m,l,v)*skgpsp(n) &
-&                    +qm(w,l)*fv(1,m,l,v)*skgpsp(n)
-    w = w + 1
-   enddo ! n
+   w1 = w0 + NTP1 - m
+   ke1 = ke(1,m,l,v); ke2 = ke(2,m,l,v)
+   fu1 = fu(1,m,l,v); fu2 = fu(2,m,l,v)
+   fv1 = fv(1,m,l,v); fv2 = fv(2,m,l,v)
+   tn1 = tn(1,m,l,v); tn2 = tn(2,m,l,v)
+   ut1 = ut(1,m,l,v); ut2 = ut(2,m,l,v)
+   vt1 = vt(1,m,l,v); vt2 = vt(2,m,l,v)
+   do w = w0 , w1
+    d(1,w,v) = d(1,w,v) + qq(w,l)*ke1 - qe(w,l)*fv1 - qm(w,l)*fu2
+    d(2,w,v) = d(2,w,v) + qq(w,l)*ke2 - qe(w,l)*fv2 + qm(w,l)*fu1
+    t(1,w,v) = t(1,w,v) + qe(w,l)*vt1 + qc(w,l)*tn1 + qm(w,l)*ut2
+    t(2,w,v) = t(2,w,v) + qe(w,l)*vt2 + qc(w,l)*tn2 - qm(w,l)*ut1
+    z(1,w,v) = z(1,w,v) + qe(w,l)*fu1 - qm(w,l)*fv2
+    z(2,w,v) = z(2,w,v) + qe(w,l)*fu2 + qm(w,l)*fv1
+   enddo ! w
+   w0 = w1 + 1
   enddo ! m
  enddo ! l
 enddo ! v
@@ -557,46 +623,38 @@ else                   ! Single CPU version (symmetry conserving)
 do v = 1 , NLEV
  do l = 1 , NLAT/2
   k = NLAT+1-l
-  w = 1
+  w0 = 1
   do m = 1 , NTP1
-   do n = m , NTP1
-    if (mod(m+n,2) == 0) then ! symmetric -----------------
-      d(1,w,v)=d(1,w,v)+qq(w,l)*(ke(1,m,l,v)+ke(1,m,k,v))*skgpsp(n) &
-                       -qe(w,l)*(fv(1,m,l,v)-fv(1,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(fu(2,m,l,v)+fu(2,m,k,v))*skgpsp(n)
-      d(2,w,v)=d(2,w,v)+qq(w,l)*(ke(2,m,l,v)+ke(2,m,k,v))*skgpsp(n) &
-                       -qe(w,l)*(fv(2,m,l,v)-fv(2,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(fu(1,m,l,v)+fu(1,m,k,v))*skgpsp(n)
-      t(1,w,v)=t(1,w,v)+qe(w,l)*(vt(1,m,l,v)-vt(1,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(tn(1,m,l,v)+tn(1,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(ut(2,m,l,v)+ut(2,m,k,v))*skgpsp(n)
-      t(2,w,v)=t(2,w,v)+qe(w,l)*(vt(2,m,l,v)-vt(2,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(tn(2,m,l,v)+tn(2,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(ut(1,m,l,v)+ut(1,m,k,v))*skgpsp(n)
-      z(1,w,v)=z(1,w,v)+qe(w,l)*(fu(1,m,l,v)-fu(1,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(fv(2,m,l,v)+fv(2,m,k,v))*skgpsp(n)
-      z(2,w,v)=z(2,w,v)+qe(w,l)*(fu(2,m,l,v)-fu(2,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(fv(1,m,l,v)+fv(1,m,k,v))*skgpsp(n)
-    else ! ---------------- antisymmetric -----------------
-      d(1,w,v)=d(1,w,v)+qq(w,l)*(ke(1,m,l,v)-ke(1,m,k,v))*skgpsp(n) &
-                       -qe(w,l)*(fv(1,m,l,v)+fv(1,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(fu(2,m,l,v)-fu(2,m,k,v))*skgpsp(n)
-      d(2,w,v)=d(2,w,v)+qq(w,l)*(ke(2,m,l,v)-ke(2,m,k,v))*skgpsp(n) &
-                       -qe(w,l)*(fv(2,m,l,v)+fv(2,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(fu(1,m,l,v)-fu(1,m,k,v))*skgpsp(n)
-      t(1,w,v)=t(1,w,v)+qe(w,l)*(vt(1,m,l,v)+vt(1,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(tn(1,m,l,v)-tn(1,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(ut(2,m,l,v)-ut(2,m,k,v))*skgpsp(n)
-      t(2,w,v)=t(2,w,v)+qe(w,l)*(vt(2,m,l,v)+vt(2,m,k,v))*skgpsp(n) &
-                       +qc(w,l)*(tn(2,m,l,v)-tn(2,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(ut(1,m,l,v)-ut(1,m,k,v))*skgpsp(n)
-      z(1,w,v)=z(1,w,v)+qe(w,l)*(fu(1,m,l,v)+fu(1,m,k,v))*skgpsp(n) &
-                       -qm(w,l)*(fv(2,m,l,v)-fv(2,m,k,v))*skgpsp(n)
-      z(2,w,v)=z(2,w,v)+qe(w,l)*(fu(2,m,l,v)+fu(2,m,k,v))*skgpsp(n) &
-                       +qm(w,l)*(fv(1,m,l,v)-fv(1,m,k,v))*skgpsp(n)
-    endif
-    w = w + 1
-   enddo ! n
+   w1 = w0 + NTP1 - m
+   ke1p = ke(1,m,l,v) + ke(1,m,k,v); ke1m = ke(1,m,l,v) - ke(1,m,k,v)
+   ke2p = ke(2,m,l,v) + ke(2,m,k,v); ke2m = ke(2,m,l,v) - ke(2,m,k,v)
+   fu1p = fu(1,m,l,v) + fu(1,m,k,v); fu1m = fu(1,m,l,v) - fu(1,m,k,v)
+   fu2p = fu(2,m,l,v) + fu(2,m,k,v); fu2m = fu(2,m,l,v) - fu(2,m,k,v)
+   fv1p = fv(1,m,l,v) + fv(1,m,k,v); fv1m = fv(1,m,l,v) - fv(1,m,k,v)
+   fv2p = fv(2,m,l,v) + fv(2,m,k,v); fv2m = fv(2,m,l,v) - fv(2,m,k,v)
+   tn1p = tn(1,m,l,v) + tn(1,m,k,v); tn1m = tn(1,m,l,v) - tn(1,m,k,v)
+   tn2p = tn(2,m,l,v) + tn(2,m,k,v); tn2m = tn(2,m,l,v) - tn(2,m,k,v)
+   ut1p = ut(1,m,l,v) + ut(1,m,k,v); ut1m = ut(1,m,l,v) - ut(1,m,k,v)
+   ut2p = ut(2,m,l,v) + ut(2,m,k,v); ut2m = ut(2,m,l,v) - ut(2,m,k,v)
+   vt1p = vt(1,m,l,v) + vt(1,m,k,v); vt1m = vt(1,m,l,v) - vt(1,m,k,v)
+   vt2p = vt(2,m,l,v) + vt(2,m,k,v); vt2m = vt(2,m,l,v) - vt(2,m,k,v)
+   do w = w0 , w1 , 2
+      d(1,w,v) = d(1,w,v) + qq(w,l)*ke1p - qe(w,l)*fv1m - qm(w,l)*fu2p
+      d(2,w,v) = d(2,w,v) + qq(w,l)*ke2p - qe(w,l)*fv2m + qm(w,l)*fu1p
+      t(1,w,v) = t(1,w,v) + qe(w,l)*vt1m + qc(w,l)*tn1p + qm(w,l)*ut2p
+      t(2,w,v) = t(2,w,v) + qe(w,l)*vt2m + qc(w,l)*tn2p - qm(w,l)*ut1p
+      z(1,w,v) = z(1,w,v) + qe(w,l)*fu1m - qm(w,l)*fv2p
+      z(2,w,v) = z(2,w,v) + qe(w,l)*fu2m + qm(w,l)*fv1p
+   enddo
+   do w = w0 + 1 , w1 , 2
+      d(1,w,v) = d(1,w,v) + qq(w,l)*ke1m - qe(w,l)*fv1p - qm(w,l)*fu2m
+      d(2,w,v) = d(2,w,v) + qq(w,l)*ke2m - qe(w,l)*fv2p + qm(w,l)*fu1m
+      t(1,w,v) = t(1,w,v) + qe(w,l)*vt1p + qc(w,l)*tn1m + qm(w,l)*ut2m
+      t(2,w,v) = t(2,w,v) + qe(w,l)*vt2p + qc(w,l)*tn2m - qm(w,l)*ut1m
+      z(1,w,v) = z(1,w,v) + qe(w,l)*fu1p - qm(w,l)*fv2m
+      z(2,w,v) = z(2,w,v) + qe(w,l)*fu2p + qm(w,l)*fv1m
+   enddo
+   w0 = w1 + 1
   enddo ! m
  enddo ! l
 enddo ! v
