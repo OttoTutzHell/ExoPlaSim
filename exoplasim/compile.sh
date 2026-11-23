@@ -71,7 +71,7 @@ nopt=0
 years=1
 nmars=0
 
-while getopts "p:r:v:n:O:t:dhm" opt; do
+while getopts "p:r:v:n:O:t:dfhm" opt; do
     case $opt in
         p)
             case $OPTARG in
@@ -205,8 +205,11 @@ while getopts "p:r:v:n:O:t:dhm" opt; do
     esac
 done
 
-echo "PRODUCING: "$optimization" -r"$prec" -o most_plasim_"$resolution"_l"$levels"_p"$ncpus".x"
-executable="most_plasim_"$resolution"_l"$levels"_p"$ncpus".x"
+exesuffix="_r${prec}"
+(($nmars)) && exesuffix="${exesuffix}_m"
+[ "$fftopt" = "fft991mod" ] && exesuffix="${exesuffix}_f"
+executable="most_plasim_${resolution}_l${levels}_p${ncpus}${exesuffix}.x"
+echo "PRODUCING: ${optimization} -r${prec} -o ${executable}"
 
 echo "Writing resmod.f90....."
 
@@ -245,9 +248,9 @@ echo "      parameter(NPRO_ATM = "$ncpus") ">>resmod.f90
 echo "      end module resmod ">>resmod.f90
 echo " ">>resmod.f90
 
-rm plasim.x
-rm ../bin/$executable
-rm ../run/$executable
+rm -f plasim.x
+rm -f ../bin/$executable
+rm -f ../run/$executable
 cp -p ../src/* .
 
 if [ "$ncpus" -gt 1 ]
@@ -283,11 +286,11 @@ export OCEANCOUP=cpl_stub
 export FFTMOD=$fftopt
 #cat makefile
 
-make -e
-./most_snow_build$prec
-./most_ice_build$prec
-cp plasim.x ../bin/$executable
-cp ../bin/$executable ../run/
+make -e || exit 1
+[ -x ./most_snow_build$prec ] && ./most_snow_build$prec
+[ -x ./most_ice_build$prec ] && ./most_ice_build$prec
+cp plasim.x ../bin/$executable || exit 1
+cp ../bin/$executable ../run/"${executable}.tmp.$$" && mv -f ../run/"${executable}.tmp.$$" ../run/$executable || exit 1
 cd ../../
 
 (($nmars)) && cp plasim/dat/T"${resolution[@]:1}"_mars/* plasim/run/ || cp plasim/dat/T"${resolution[@]:1}"/* plasim/run/

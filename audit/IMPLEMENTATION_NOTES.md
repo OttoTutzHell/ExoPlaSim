@@ -100,7 +100,7 @@ and on model years 18–25 of the same configuration (`results/convergence_repor
 - It does not change `runtobalance()`; that would alter existing behaviour.
 - Soil heat and the heat content of ice and snow are not in the budget. While the ice edge is still moving the unexplained term is large and should be read as "not settled", not as a leak.
 - The open-ocean term uses surface temperature, since sea-surface temperature is not in the default output.
-- It does not address restarts across resolutions, the `pyfft` build failure under numpy 2, or two smaller wrapper faults found on the way: the executable cache ignores `precision` (a precision-8 restart crashes on a cached precision-4 executable unless `recompile=True`), and two models created at once race on compiling.
+- It does not address restarts across resolutions. (The `pyfft` build failure under NumPy 2, the precision-unaware executable cache, and the parallel `Model()` compilation race have since been fixed in `exoplasim/__init__.py`, `exoplasim/pyburn.py`, and `exoplasim/compile.sh`.)
 
 ## Item 3: near-infrared water-vapour absorption that sees the star
 
@@ -183,7 +183,7 @@ How far to trust it:
 | grid, levels, step | T21 L10, 30 min | T42 L10, 30 min (20 if it crashes near the terminator range) |
 | `physicsfilter` | `gp|exp|sp` | `gp|exp|sp` |
 | `th2oc`, `gamma` | defaults | pin to 0.024 and 0.01, as the vault does |
-| `precision` | 8, with `recompile=True` on first use | same |
+| `precision` | 8 (cached separately from precision 4) | same |
 | `mldepth` | 50 m, held fixed | same |
 | `oceandiffusion` | 2×10⁴ m²/s as a starting value; bracket with 1×10⁴ and 5×10⁴ | the value chosen at T21 |
 | `oceandiffusionzonal` | 1 unless a lobster-shaped open ocean is wanted | same |

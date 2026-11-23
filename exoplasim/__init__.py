@@ -5,6 +5,13 @@
 import os
 import sys
 import subprocess
+import contextlib
+import shutil
+import threading
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import numpy as np
 import glob
 import exoplasim.gcmt 
@@ -21,6 +28,54 @@ try:
 except:
   pass
 import platform
+
+_BUILD_THREAD_LOCK = threading.Lock()
+_BUILD_LOCK_STATE = threading.local()
+
+
+@contextlib.contextmanager
+def _build_lock(sourcedir):
+    """Serialize configuration and compilation in the shared package directory.
+
+    Safe across both concurrent processes (via fcntl.flock) and concurrent
+    threads within the same process, and re-entrant on the same thread.
+    """
+    depth = getattr(_BUILD_LOCK_STATE, "depth", 0)
+    if depth > 0:
+        _BUILD_LOCK_STATE.depth = depth + 1
+        try:
+            yield
+        finally:
+            _BUILD_LOCK_STATE.depth = depth
+        return
+
+    lockpath = os.path.join(sourcedir, ".build.lock")
+    with _BUILD_THREAD_LOCK:
+        fd = os.open(lockpath, os.O_CREAT | os.O_RDWR, 0o666)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            _BUILD_LOCK_STATE.depth = 1
+            try:
+                yield
+            finally:
+                _BUILD_LOCK_STATE.depth = 0
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _numpy_uses_meson_f2py():
+    """Return True when numpy.f2py defaults to the meson backend."""
+    if sys.version_info >= (3, 12):
+        return True
+    try:
+        major = int(np.__version__.split(".")[0])
+    except Exception:
+        return False
+    return major >= 2
+
 
 smws = {'mH2': 2.01588,
         'mHe': 4.002602,
@@ -61,54 +116,49 @@ def _noneparse(text,dtype):
             
     #return sourcedir
                 
-def compile_pyfft():
+def compile_pyfft(_from_sysconfigure=False):
     '''Compile or recompile the pyfft libraries. Requires meson, ninja, gfortran, and gcc.'''
     
-    sourcedir = "/".join(__file__.split("/")[:-1]) #Get the absolute path for the module
+    sourcedir = os.path.dirname(os.path.abspath(__file__))
     print(sourcedir)
      
     try:
-        cwd = os.getcwd()
-        os.chdir(sourcedir)
-        
-        if not os.path.isfile(sourcedir+"/most_compiler")\
-            or not os.path.isfile(sourcedir+"/most_compiler_mpi")\
-            or not os.path.isfile(sourcedir+"/firstrun"):
-            os.system(f"touch {sourcedir}/firstrun")
-            sysconfigure()
-        
-        
-        import numpy.f2py
-        with open("pyfft.f90","r") as pyfft_file:
-            pyfft_source = pyfft_file.read()
-        failed = pyburn.f2py_compile(pyfft_source,modulename='pyfft',
-                                    extra_args='--f90exec=gfortran --f77exec=gfortran --f90flags="-O3"',
-                                    extension='.f90')
-        if failed!=0:
-            print(failed)
-            #raise Exception("Encountered an error in pyfft compilation with f2py.... please ensure gfortran is installed and configured correctly.")
-        
-        with open("pyfft991.f90","r") as pyfft991_file:
-            pyfft991_source = pyfft991_file.read()
-        failed = pyburn.f2py_compile(pyfft991_source,modulename='pyfft991',
-                                    extra_args='--f90exec=gfortran --f77exec=gfortran --f90flags="-O3"',
-                                    extension='.f90')
-        if failed!=0:
-            print(failed)
-            #raise Exception("Encountered an error in pyfft991 compilation with f2py.... please ensure gfortran is installed and configured correctly.")
-            
-        #if self.burn7:
-            #os.system("nc-config --version > ncversion.tmp")
-            #with open("ncversion.tmp","r") as ncftmpf:
-                #version = float('.'.join(ncftmpf.read().split()[1].split('.')[:2]))
-            #if version>4.2:
-                #os.system("cd postprocessor && ./build_init.sh || ./build_init_compatibility.sh")
-            #else:
-                #os.system("cd postprocessor && rm burn7.x && make")
-            #os.chdir(cwd)
-            #os.system("touch %s/postprocessor/netcdfbuilt"%sourcedir)
-            
-        os.chdir(cwd)
+        with _build_lock(sourcedir):
+            if not _from_sysconfigure and (
+                not os.path.isfile(os.path.join(sourcedir, "most_compiler"))
+                or not os.path.isfile(os.path.join(sourcedir, "most_compiler_mpi"))
+                or not os.path.isfile(os.path.join(sourcedir, "firstrun"))
+            ):
+                sysconfigure()
+                return
+
+            env = os.environ.copy()
+            if _numpy_uses_meson_f2py():
+                # NumPy 2 / Python 3.12+ uses the meson backend, which does not
+                # accept distutils-only --f90exec/--f77exec flags.
+                env.setdefault("FC", "gfortran")
+                env.setdefault("FFLAGS", "-O3")
+                extra_args = ""
+            else:
+                extra_args = '--f90exec=gfortran --f77exec=gfortran --f90flags="-O3"'
+
+            for modname, filename in (("pyfft", "pyfft.f90"), ("pyfft991", "pyfft991.f90")):
+                with open(os.path.join(sourcedir, filename), "r") as src_file:
+                    src = src_file.read()
+                failed = pyburn.f2py_compile(
+                    src,
+                    modulename=modname,
+                    extra_args=extra_args,
+                    extension=".f90",
+                    cwd=sourcedir,
+                    env=env,
+                )
+                if failed != 0:
+                    raise RuntimeError(
+                        f"Encountered an error (exit code {failed}) in {modname} compilation "
+                        "with f2py. Please ensure gfortran, gcc, meson, and ninja are "
+                        "installed and configured correctly."
+                    )
     except PermissionError:
         raise PermissionError("\nHi! Welcome to ExoPlaSim. It looks like this is the first "+
                             "time you're using this program since installing, and you "+
@@ -129,70 +179,47 @@ def sysconfigure():
     or the initial configuration failed, you should call this function.
     '''
     
-    sourcedir = "/".join(__file__.split("/")[:-1]) #Get the absolute path for the module
+    sourcedir = os.path.dirname(os.path.abspath(__file__))
+    result = None
      
     try:
-        cwd = os.getcwd()
-        os.chdir(sourcedir)
-        pyversion = ".".join(sys.version.split(".")[:2])
-        #for pyfftfile in glob.glob(os.path.join(sourcedir,"pyfft*.so")):
-            #os.remove(pyfftfile)
-        if float(pyversion)>=3.5 and float(pyversion)<3.7:
-            print("./configure -v %s"%(pyversion))
-            result = subprocess.run(["./configure.sh -v %s"%(pyversion)],shell=True,check=True,
-                                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                                    universal_newlines=True)
-            print(result.stdout)
-            print(result.stderr)
-        elif float(pyversion)>=3.7:
-            print("./configure -v %s"%(pyversion))
-            result = subprocess.run(["./configure.sh -v %s"%(pyversion)],shell=True,check=True,
-                            capture_output=True,universal_newlines=True)
-            print(result.stdout)
-            print(result.stderr)
-        elif float(pyversion)<3.5 and float(pyversion)>=3.0:
-            print("./configure -v %s"%(pyversion))
-            os.system("./configure.sh -v %s"%(pyversion))
-            result=""
-        else:
-            print("./configure -v 3")
-            os.system("./configure.sh -v 3")
-            result=""
-            
-        if not os.path.isfile(sourcedir+"/firstrun") :
-            os.system(f"touch {sourcedir}/firstrun")
-            compile_pyfft()
-            
-        #import numpy.f2py
-        #with open("pyfft.f90","r") as pyfft_file:
-            #pyfft_source = pyfft_file.read()
-        #failed = pyburn.f2py_compile(pyfft_source,modulename='pyfft',
-                                    #extra_args='--f90exec=gfortran --f77exec=gfortran --f90flags="-O3"',
-                                    #extension='.f90')
-        #if failed!=0:
-            #print(failed)
-            ##raise Exception("Encountered an error in pyfft compilation with f2py.... please ensure gfortran is installed and configured correctly.")
-        
-        #with open("pyfft991.f90","r") as pyfft991_file:
-            #pyfft991_source = pyfft991_file.read()
-        #failed = pyburn.f2py_compile(pyfft991_source,modulename='pyfft991',
-                                    #extra_args='--f90exec=gfortran --f77exec=gfortran --f90flags="-O3"',
-                                    #extension='.f90')
-        #if failed!=0:
-            #print(failed)
-            #raise Exception("Encountered an error in pyfft991 compilation with f2py.... please ensure gfortran is installed and configured correctly.")
-            
-        #if self.burn7:
-            #os.system("nc-config --version > ncversion.tmp")
-            #with open("ncversion.tmp","r") as ncftmpf:
-                #version = float('.'.join(ncftmpf.read().split()[1].split('.')[:2]))
-            #if version>4.2:
-                #os.system("cd postprocessor && ./build_init.sh || ./build_init_compatibility.sh")
-            #else:
-                #os.system("cd postprocessor && rm burn7.x && make")
-            #os.chdir(cwd)
-            #os.system("touch %s/postprocessor/netcdfbuilt"%sourcedir)
-        os.chdir(cwd)
+        with _build_lock(sourcedir):
+            pyversion = f"{sys.version_info.major}.{sys.version_info.minor}"
+            if sys.version_info >= (3, 7):
+                print(f"./configure.sh -v {pyversion}")
+                result = subprocess.run(
+                    ["./configure.sh", "-v", pyversion],
+                    cwd=sourcedir,
+                    check=True,
+                    capture_output=True,
+                    universal_newlines=True,
+                )
+                print(result.stdout)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+            elif sys.version_info >= (3, 5):
+                print(f"./configure.sh -v {pyversion}")
+                result = subprocess.run(
+                    ["./configure.sh", "-v", pyversion],
+                    cwd=sourcedir,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                )
+                print(result.stdout)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+            else:
+                ver_arg = pyversion if sys.version_info >= (3, 0) else "3"
+                print(f"./configure.sh -v {ver_arg}")
+                subprocess.run(["./configure.sh", "-v", ver_arg], cwd=sourcedir, check=True)
+
+            compile_pyfft(_from_sysconfigure=True)
+
+            firstrun_path = os.path.join(sourcedir, "firstrun")
+            with open(firstrun_path, "a"):
+                os.utime(firstrun_path, None)
     except PermissionError:
         raise PermissionError("\nHi! Welcome to ExoPlaSim. It looks like this is the first "+
                             "time you're using this program since installing, and you "+
@@ -203,9 +230,17 @@ def sysconfigure():
                             "python3 myscript.py. If you did this because pip install "+
                             "breaks without sudo privileges, then try using \n\n\tpip "+ "install --user exoplasim \n\ninstead. It is generally a "+
                                 "very bad idea to install things with sudo pip install.")
-    except Exception as e:
-        print(result.stderr)
-        raise e
+    except subprocess.CalledProcessError as e:
+        if e.stdout:
+            print(e.stdout)
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+        raise
+    except Exception:
+        stderr = getattr(result, "stderr", "")
+        if stderr:
+            print(stderr, file=sys.stderr)
+        raise
         
 def printsysconfig(ncpus=4):
     '''Print the system configuration file ExoPlaSim generated on its first installation.
@@ -389,101 +424,26 @@ class Model(object):
         if self.extension not in pyburn.SUPPORTED:
             raise Exception("Unsupported output format detected. Supported formats are:\n\t\n\t%s"%("\n\t".join(pyburn.SUPPORTED)))
         
-        sourcedir = "/".join(__file__.split("/")[:-1]) #Get the absolute path for the module
-        
-        if not os.path.isfile(sourcedir+"/firstrun") or not os.path.isfile(sourcedir+"/most_compiler")\
-            or not os.path.isfile(sourcedir+"/most_compiler_mpi"): #This means we haven't run yet, and have some post-install work to do
-            recompile=True
-            #os.system('spth=$(python%s -c "import exoplasim as exo; print(exo.__path__)") && echo $spth>sourcepath'%sys.version[0])
-            #with open("sourcepath","r") as spf:
-                #sourcedir = spf.read().strip()
-                #if sourcedir[0]=="[":
-                    #sourcedir=sourcedir[1:]
-                #if sourcedir[-1]=="]":
-                    #sourcedir=sourcedir[:-1]
-                #if sourcedir[0]=="'":
-                    #sourcedir=sourcedir[1:]
-                #if sourcedir[-1]=="'":
-                    #sourcedir=sourcedir[:-1]
-            #os.system("rm sourcepath")
-            #with open("%s/__init__.py"%sourcedir,"r") as sourcef:
-                #sourcecode = sourcef.read().split('\n')
-            #sourcecode[2] = 'sourcedir = "%s"'%sourcedir
-            #sourcecode = '\n'.join(sourcecode)
-            #os.system("cp %s/__init__.py %s/preinit.py"%(sourcedir,sourcedir))
-            #try:
-                ##with open("%s/__init__.py"%sourcedir,"w") as sourcef:
-                    ##sourcef.write(sourcecode)
-                #cwd = os.getcwd()
-                #os.chdir(sourcedir)
-                #pyversion = ".".join(sys.version.split(".")[:2])
-                #for pyfftfile in glob.glob(os.path.join(sourcedir,"pyfft*.so")):
-                    #os.remove(pyfftfile)
-                #if float(pyversion)>=3.5 and float(pyversion)<3.7:
-                    #print("./configure.sh -v %s"%(pyversion))
-                    #subprocess.run(["./configure.sh -v %s"%(pyversion)],shell=True,check=True)
-                #elif float(pyversion)>=3.7:
-                    #print("./configure.sh -v %s"%(pyversion))
-                    #subprocess.run(["./configure.sh -v %s"%(pyversion)],shell=True,check=True,
-                                   #capture_output=True)
-                #elif float(pyversion)<3.5 and float(pyversion)>=3.0:
-                    #print("./configure.sh -v %s"%(pyversion))
-                    #os.system("./configure.sh -v %s"%(pyversion))
-                #else:
-                    #print("./configure.sh -v 3")
-                    #os.system("./configure.sh -v 3")
-                ##if self.burn7:
-                    ##os.system("nc-config --version > ncversion.tmp")
-                    ##with open("ncversion.tmp","r") as ncftmpf:
-                        ##version = float('.'.join(ncftmpf.read().split()[1].split('.')[:2]))
-                    ##if version>4.2:
-                        ##os.system("cd postprocessor && ./build_init.sh || ./build_init_compatibility.sh")
-                    ##else:
-                        ##os.system("cd postprocessor && rm burn7.x && make")
-                    ##os.chdir(cwd)
-                    ##os.system("touch %s/postprocessor/netcdfbuilt"%sourcedir)
-                #os.chdir(cwd)
-            #except PermissionError:
-                #raise PermissionError("\nHi! Welcome to ExoPlaSim. It looks like this is the first "+
-                                    #"time you're using this program since installing, and you "+
-                                    #"may have installed it to a location that needs root "+
-                                    #"privileges to modify. This is not ideal! If you want to "+
-                                    #"use the program this way, you will need to run python code"+
-                                    #" that uses ExoPlaSim with sudo privileges; i.e. sudo "+
-                                    #"python3 myscript.py. If you did this because pip install "+
-                                    #"breaks without sudo privileges, then try using \n\n\tpip "+ "install --user exoplasim \n\ninstead. It is generally a "+
-                                    #"very bad idea to install things with sudo pip install.")
-                                    
-            sysconfigure()
-            #compile_pyfft() #This will be called from sysconfigure()
-            os.system(f"touch {sourcedir}/firstrun")
-            
-        #if self.burn7:
-            #self.extension = ".nc"
-            #if not os.path.isfile("%s/postprocessor/netcdfbuilt"%sourcedir): #netcdf postprocessor hasn't been built
-                #try:
-                    #cwd = os.getcwd()
-                    #os.chdir(sourcedir)
-                    #os.system("nc-config --version > ncversion.tmp")
-                    #with open("ncversion.tmp","r") as ncftmpf:
-                        #version = float('.'.join(ncftmpf.read().split()[1].split('.')[:2]))
-                    #if version>4.2:
-                        #os.system("cd postprocessor && ./build_init.sh || ./build_init_compatibility.sh")
-                    #else:
-                        #os.system("cd postprocessor && rm burn7.x && make")
-                    #os.chdir(cwd)
-                    #os.system("touch %s/postprocessor/netcdfbuilt"%sourcedir)
-                #except PermissionError:
-                    #raise PermissionError("\nHi! Welcome to ExoPlaSim. It looks like this is the first "+
-                                    #"time you're using this program since installing, and you "+
-                                    #"may have installed it to a location that needs root "+
-                                    #"privileges to modify. This is not ideal! If you want to "+
-                                    #"use the program this way, you will need to run python code"+
-                                    #" that uses ExoPlaSim with sudo privileges; i.e. sudo "+
-                                    #"python3 myscript.py. If you did this because pip install "+
-                                    #"breaks without sudo privileges, then try using \n\n\tpip "+ "install --user exoplasim \n\ninstead. It is generally a "+
-                                    #"very bad idea to install things with sudo pip install.")
-        
+        sourcedir = os.path.dirname(os.path.abspath(__file__))
+
+        if precision in (4, "4", "single"):
+            precision = 4
+        elif precision in (8, "8", "double"):
+            precision = 8
+        else:
+            raise ValueError("Unsupported precision %r. Use 4 (single) or 8 (double)." % (precision,))
+        self.precision = precision
+
+        if not os.path.isfile(os.path.join(sourcedir, "firstrun"))\
+            or not os.path.isfile(os.path.join(sourcedir, "most_compiler"))\
+            or not os.path.isfile(os.path.join(sourcedir, "most_compiler_mpi")):
+            with _build_lock(sourcedir):
+                if not os.path.isfile(os.path.join(sourcedir, "firstrun"))\
+                    or not os.path.isfile(os.path.join(sourcedir, "most_compiler"))\
+                    or not os.path.isfile(os.path.join(sourcedir, "most_compiler_mpi")):
+                    recompile = True
+                    sysconfigure()
+
         self.runscript=None
         self.starradius=1.0
         self.otherargs = {}
@@ -507,12 +467,12 @@ class Model(object):
         self.layers = layers
         
         self.odir = os.getcwd()
-        if workdir[0]!="/":
-            workdir = self.odir+"/"+workdir
+        if not os.path.isabs(workdir):
+            workdir = os.path.join(self.odir, workdir)
         self.workdir = workdir
         if os.path.isfile(self.workdir): #Linux can't have file and directory of same name
             self.workdir += "_dir"
-        os.system("mkdir %s/"%self.workdir)
+        os.makedirs(self.workdir, exist_ok=True)
         self.currentyear=inityear
         
         # Depending on how the user has entered the resolution, set the appropriate number
@@ -541,7 +501,7 @@ class Model(object):
             print("WARNING: This resolution is untested.")
             self.nsp=85
             self.nlats=128
-        elif resolution=="T106" or resolution=="T106" or resolution==106 or resolution==160:
+        elif resolution=="T106" or resolution=="t106" or resolution==106 or resolution==160:
             if 160 % ncpus != 0:
                 raise ValueError(CPU_WRONG_MSG)
             print("WARNING: This resolution is untested.")
@@ -569,47 +529,51 @@ class Model(object):
         # to recompile, we'll have to recompile
         
         if not source:
-            source = "%s/plasim/run"%sourcedir
+            source = os.path.join(sourcedir, "plasim", "run")
         
-        self.executable = source+"/most_plasim_t%d_l%d_p%d.x"%(self.nsp,self.layers,ncpus)
+        exesuffix = "_r%d" % self.precision
+        if self.mars:
+            exesuffix += "_m"
+        if force991:
+            exesuffix += "_f"
+        self.executable = os.path.join(
+            source,
+            "most_plasim_t%d_l%d_p%d%s.x" % (self.nsp, self.layers, ncpus, exesuffix),
+        )
         
-        #if self.burn7:
-            #burnsource = "%s/postprocessor"%sourcedir
+        print("Checking for %s...." % self.executable)
         
-        print("Checking for %s...."%self.executable)
+        with _build_lock(sourcedir):
+            if recompile or not os.path.exists(self.executable):
+                cmd = [
+                    "./compile.sh",
+                    "-n", str(self.ncpus),
+                    "-p", str(self.precision),
+                    "-r", "T%d" % self.nsp,
+                    "-v", str(self.layers),
+                ]
+                if debug:
+                    cmd.append("-d")
+                if optimization:
+                    cmd.extend(["-O", str(optimization)])
+                if self.mars:
+                    cmd.append("-m")
+                if force991:
+                    cmd.append("-f")
+                subprocess.run(cmd, cwd=sourcedir, check=True)
+            if not os.path.exists(self.executable):
+                raise RuntimeError("Expected ExoPlaSim executable was not produced: %s" % self.executable)
+            for entry in os.listdir(source):
+                if entry.startswith("most_plasim_") and entry.endswith(".x"):
+                    continue
+                src_path = os.path.join(source, entry)
+                if os.path.isfile(src_path):
+                    shutil.copy2(src_path, os.path.join(self.workdir, entry))
+            shutil.copy2(self.executable, os.path.join(self.workdir, os.path.basename(self.executable)))
         
-        if recompile or not os.path.exists(self.executable):
-            extraflags = ""
-            if debug:
-                extraflags+= "-d "
-            if optimization:
-                extraflags+= "-O %s"%optimization
-            if self.mars:
-                extraflags+= "-m "
-            if force991:
-                extraflags+= "-f "
-            os.system("cwd=$(pwd) && "+
-                    "cd %s && ./compile.sh -n %d -p %d -r T%d -v %d "%(sourcedir,self.ncpus,
-                                                                        precision,self.nsp,
-                                                                        self.layers)+
-                    extraflags+" &&"+
-                    "cd $cwd")
-        
-        os.system("cp %s/* %s/"%(source,self.workdir))
-        #if self.burn7:
-            #os.system("cp %s/burn7.x %s/"%(burnsource,self.workdir))
-        
-        #Copy the executable to the working directory, and then CD there
-        os.system("cp %s %s"%(self.executable,self.workdir))
-        #os.chdir(self.workdir)
-        
-        self.executable = self.executable.split("/")[-1] #Strip off all the preceding path
-        
-        os.chdir(self.workdir)
-        os.chdir("..")
-        self.crashdir = os.getcwd()+"/"+self.modelname
+        self.executable = os.path.basename(self.executable)
+        self.crashdir = os.path.join(os.path.dirname(os.path.abspath(self.workdir)), self.modelname)
         self.secondarydir = None
-        os.chdir(self.odir)
         
         
     def run(self,**kwargs):

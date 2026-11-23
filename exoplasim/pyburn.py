@@ -3990,7 +3990,9 @@ def f2py_compile(source,
             verbose=True,
             source_fn=None,
             extension='.f',
-            full_output=False
+            full_output=False,
+            cwd=None,
+            env=None
            ):
     """
     Build extension module from a Fortran 77 source string with f2py.
@@ -4024,6 +4026,10 @@ def f2py_compile(source,
         the stdout and stderr of the compile process, instead of just
         the status code.
         .. versionadded:: 1.20.0
+    cwd : str, optional
+        Working directory in which to run f2py.
+    env : dict, optional
+        Environment variables to pass to the f2py subprocess.
     Returns
     -------
     result : int or `subprocess.CompletedProcess`
@@ -4064,13 +4070,16 @@ def f2py_compile(source,
              '-c',
              'import numpy.f2py as f2py2e;f2py2e.main()'] + args
         try:
-            cp = subprocess.run(c, capture_output=True)
+            cp = subprocess.run(c, capture_output=True, cwd=cwd, env=env)
         except OSError:
             # preserve historic status code used by exec_command()
             cp = subprocess.CompletedProcess(c, 127, stdout=b'', stderr=b'')
         else:
             if verbose:
-                print(cp.stdout.decode())
+                if cp.stdout:
+                    print(cp.stdout.decode(errors='replace'))
+                if cp.stderr:
+                    print(cp.stderr.decode(errors='replace'), file=sys.stderr)
     finally:
         if source_fn is None:
             os.remove(fname)
