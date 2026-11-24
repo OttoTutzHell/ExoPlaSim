@@ -27,8 +27,8 @@
       logical :: lstarfile = .false.
       integer :: nstarfile = 0      ! integer version of the logical
       integer :: l_aerorad = 0 ! Aerosol scattering and absorption off (0) or on (1)
-      character(len=80) :: starfile = " " !Name of input stellar spectrum file
-      character(len=80) :: starfilehr = " " !Name of hi-res version of input spectrum
+      character(len=512) :: starfile = " " !Name of input stellar spectrum file
+      character(len=512) :: starfilehr = " " !Name of hi-res version of input spectrum
       character(len=128) :: aerofile = " " ! Name/path to file constaining aerosol optical data
       
       real    :: gsol0   = 1367.0 ! solar constant (set in planet module)
@@ -78,6 +78,16 @@
       
       integer :: nstartemp = 0    ! Switch for using the star's bb temp to determine sw (0/1)
       integer :: nsimplealbedo = 1  ! Compute broadband albedo and use it for both bands
+      integer :: nswrnir = 0      ! Switch for stellar-spectrum-dependent near-IR water vapour
+                                  ! absorption (0 = Lacis & Hansen 1974 solar fit for all stars,
+                                  ! 1 = re-weight the absorption by the stellar flux in three
+                                  ! near-IR bands; needs nstartemp=1)
+      integer, parameter :: NNIRTAB = 201      ! size of the absorption look-up table
+      real, parameter :: nirlogy0 = -7.0       ! log10 of the smallest tabulated water amount
+      real, parameter :: nirdlogy = 0.05       ! table spacing in log10(water amount)
+      real :: nirtab(NNIRTAB) = 0.0            ! absorbed fraction of total stellar flux
+      integer :: nnirready = 0                 ! 1 once nirtab has been filled
+      real :: nirbandratio(3) = 1.0            ! stellar/solar flux fraction, 3 near-IR bands
       
       real :: rcl1(3)=(/0.15,0.30,0.60/) ! cloud albedos spectral range 1
       real :: rcl2(3)=(/0.15,0.30,0.60/) ! cloud albedos spectral range 2
@@ -153,6 +163,45 @@
       real :: solslatsdec      ! sin(lat)*sin(decl) 
       real :: zmuz             ! temporary zenit angle   
 !
+
+      contains
+
+!     =================
+!     FUNCTION SWH2OABS
+!     =================
+
+      elemental real function swh2oabs(pwv)
+!
+!     fraction of the total stellar flux absorbed by an effective
+!     water vapour amount pwv (cm precipitable water, scaled as in swr)
+!
+!     nswrnir=0 : Lacis & Hansen (1974), fitted for the solar spectrum
+!     nswrnir=1 : the same curve mapped onto a near-IR k-distribution
+!                 (Chou & Lee 1996; Chou & Suarez 1999) whose three bands
+!                 are re-weighted by the stellar spectrum (see solarini).
+!                 For a 5772 K blackbody the two are identical.
+!
+      real, intent(in) :: pwv
+      real :: zx,zw
+      integer :: jx
+      if (nswrnir == 0 .or. nnirready == 0) then
+       swh2oabs = 2.9*pwv/((1.+141.5*pwv)**0.635+5.925*pwv)
+      else if (pwv <= 0.) then
+       swh2oabs = 0.
+      else
+       zx = (log10(pwv)-nirlogy0)/nirdlogy
+       if (zx <= 0.) then
+        swh2oabs = nirtab(1)*pwv/10.**nirlogy0
+       else if (zx >= real(NNIRTAB-1)) then
+        swh2oabs = nirtab(NNIRTAB)
+       else
+        jx = int(zx)
+        zw = zx-real(jx)
+        swh2oabs = (1.-zw)*nirtab(jx+1)+zw*nirtab(jx+2)
+       endif
+      endif
+      end function swh2oabs
+
       end module radmod
 
 !
@@ -353,6 +402,8 @@
 !           = zsolar1 x ------------------- x ---------------------
 !                               z1             zgcross1 + zgcross2
 !                       
+        if (nswrnir > 0) call mknirtab(wv1,bb1,wv2,bb2,bbg1,bbg2)
+
         zdenom1 = 0.01/z1
         zdenom2 = 0.01/z2
         
@@ -557,6 +608,8 @@
       call mpbcr(zsolar1)
       call mpbcr(zsolar2)
       call mpbcr(rcoeff)
+      call mpbcrn(nirtab,NNIRTAB)
+      call mpbci(nnirready)
       call mpbcrn(dsnowalb,2)
       call mpbcrn(dsnowalbmn,2)
       call mpbcrn(dsnowalbmx,2)
@@ -578,6 +631,150 @@
       
       end subroutine solarini
       
+!     ===================
+!     SUBROUTINE MKNIRTAB
+!     ===================
+
+      subroutine mknirtab(pwv1,pbb1,pwv2,pbb2,pbg1,pbg2)
+      use radmod
+!
+!     build the look-up table used by swh2oabs when nswrnir=1
+!
+!     The Lacis & Hansen (1974) curve A_LH(y) is the fraction of the
+!     total solar flux absorbed by water vapour. It cannot respond to
+!     the stellar spectrum. Here it is mapped onto the near-IR water
+!     vapour k-distribution of Chou & Lee (1996, J. Atmos. Sci. 53,
+!     1203) as tabulated for the three bands 0.70-1.22, 1.22-2.27 and
+!     2.27-10 micron of Chou & Suarez (1999, NASA TM-104606 vol. 15):
+!
+!       A_sun(u)  = sum_b       sum_k hk(b,k) (1-exp(-xk(k) u))
+!       A_star(u) = sum_b r(b)  sum_k hk(b,k) (1-exp(-xk(k) u))
+!
+!     r(b) = (fraction of the stellar flux in band b)
+!           /(fraction of a 5772 K blackbody's flux in band b)
+!
+!     For each tabulated y, u(y) is found from A_sun(u) = A_LH(y) and
+!     the table holds A_star(u(y)). The pressure and temperature
+!     scaling of the water amount therefore stays that of swr, a
+!     5772 K star reproduces Lacis & Hansen, and only the weighting of
+!     the bands changes. The spectral shape inside each band is taken
+!     to be solar.
+!
+      real :: pwv1(1024),pbb1(1024),pwv2(1024),pbb2(1024)
+      real :: pbg1(1024),pbg2(1024)
+      integer, parameter :: jpk=10, jpb=3
+      real :: zxk(jpk),zhk(jpb,jpk),zedge(jpb+1)
+      real :: zfs(jpb),zfg(jpb),zts,ztg,zmid,zds,zdg,zts2,zcap
+      real :: zy,zalh,zlo,zhi,zu,zas,zax
+      integer :: jb,jk,jt,jit,k
+      real :: zplg,pw
+!     Planck function of a 5772 K blackbody on the wavelength grid in use
+!     (pbg1/pbg2 are on the default grid, which a stellar spectrum file replaces)
+      zplg(pw)=1.0/(1.0e6*pw)**5/(exp(0.0143877735383/(5772.0*pw))-1.0)
+
+      data zxk/0.0010, 0.0133, 0.0422, 0.1334, 0.4217,                  &
+     &         1.334,  5.623,  31.62,  177.8,  1000.0/
+      data zhk/.20673,.08236,.01074,  .03497,.01157,.00360,             &
+     &         .03011,.01133,.00411,  .02260,.01143,.00421,             &
+     &         .01336,.01240,.00389,  .00696,.01258,.00326,             &
+     &         .00441,.01381,.00499,  .00115,.00650,.00465,             &
+     &         .00026,.00244,.00245,  .00000,.00094,.00145/
+      data zedge/0.70e-6,1.22e-6,2.27e-6,10.0e-6/
+!
+!     flux of the star and of a 5772 K blackbody in each band
+!
+      zfs(:)=0.
+      zfg(:)=0.
+      zts=0.
+      ztg=0.
+      zts2=0.
+      do k=1,1023
+       zmid=0.5*(pwv1(k)+pwv1(k+1))
+       zds=0.5*(pbb1(k)+pbb1(k+1))*(pwv1(k+1)-pwv1(k))
+       zdg=0.5*(zplg(pwv1(k))+zplg(pwv1(k+1)))*(pwv1(k+1)-pwv1(k))
+       zts=zts+zds
+       ztg=ztg+zdg
+       do jb=1,jpb
+        if (zmid >= zedge(jb) .and. zmid < zedge(jb+1)) then
+         zfs(jb)=zfs(jb)+zds
+         zfg(jb)=zfg(jb)+zdg
+        endif
+       enddo
+       zmid=0.5*(pwv2(k)+pwv2(k+1))
+       zds=0.5*(pbb2(k)+pbb2(k+1))*(pwv2(k+1)-pwv2(k))
+       zdg=0.5*(zplg(pwv2(k))+zplg(pwv2(k+1)))*(pwv2(k+1)-pwv2(k))
+       zts=zts+zds
+       zts2=zts2+zds
+       ztg=ztg+zdg
+       do jb=1,jpb
+        if (zmid >= zedge(jb) .and. zmid < zedge(jb+1)) then
+         zfs(jb)=zfs(jb)+zds
+         zfg(jb)=zfg(jb)+zdg
+        endif
+       enddo
+      enddo
+!     the segment joining the two wavelength arrays (near 0.75 micron)
+      zds=0.5*(pbb1(1024)+pbb2(1))*(pwv2(1)-pwv1(1024))
+      zdg=0.5*(zplg(pwv1(1024))+zplg(pwv2(1)))*(pwv2(1)-pwv1(1024))
+      zts=zts+zds
+      ztg=ztg+zdg
+      zfs(1)=zfs(1)+zds
+      zfg(1)=zfg(1)+zdg
+
+      do jb=1,jpb
+       if (zfg(jb) > 0. .and. zts > 0.) then
+        nirbandratio(jb)=(zfs(jb)/zts)/(zfg(jb)/ztg)
+       else
+        nirbandratio(jb)=1.
+       endif
+      enddo
+!
+!     the table. The absorbed fraction is capped just below the flux
+!     fraction beyond 0.75 micron so that the band-2 transmissivity in
+!     swr stays positive for any stellar temperature or spectrum.
+!
+      zcap=1.
+      if (zts > 0.) zcap=0.98*zts2/zts
+      do jt=1,NNIRTAB
+       zy=10.**(nirlogy0+real(jt-1)*nirdlogy)
+       zalh=2.9*zy/((1.+141.5*zy)**0.635+5.925*zy)
+!      solve A_sun(u)=A_LH(y) for log10(u) by bisection
+       zlo=-12.
+       zhi=6.
+       do jit=1,60
+        zu=10.**(0.5*(zlo+zhi))
+        zas=0.
+        do jk=1,jpk
+         zas=zas+sum(zhk(:,jk))*(1.-exp(-min(zxk(jk)*zu,80.)))
+        enddo
+        if (zas < zalh) then
+         zlo=0.5*(zlo+zhi)
+        else
+         zhi=0.5*(zlo+zhi)
+        endif
+       enddo
+       zu=10.**(0.5*(zlo+zhi))
+       zax=0.
+       do jk=1,jpk
+        do jb=1,jpb
+         zax=zax+nirbandratio(jb)*zhk(jb,jk)                            &
+     &          *(1.-exp(-min(zxk(jk)*zu,80.)))
+        enddo
+       enddo
+       nirtab(jt)=min(zax,zcap)
+      enddo
+      nnirready=1
+
+      write(nud,*) "Near-IR H2O absorption re-weighted by stellar spectrum"
+      write(nud,*) "Band flux ratios star/5772K (0.70-1.22, 1.22-2.27,",  &
+     &             " 2.27-10 micron):",nirbandratio(:)
+      write(nud,*) "Absorbed fraction of stellar flux at 1 cm H2O:",      &
+     &             swh2oabs(1.0)," (solar fit:",                         &
+     &             2.9/((1.+141.5)**0.635+5.925),")"
+
+      return
+      end subroutine mknirtab
+
 !     =================
 !     SUBROUTINE RADINI
 !     =================
@@ -608,7 +805,7 @@
      &               ,a0o3,a1o3,aco3,bo3,co3,toffo3,o3scale,newrsc,necham,necham6   &
      &               ,nsol,nclouds,nswrcl,nrscat,rcl1,rcl2,acl2,clgray,tpofmt   &
      &               ,acllwr,tswr1,tswr2,tswr3,th2oc,dawn,starbbtemp,nstartemp  &
-     &               ,nsimplealbedo,nstarfile,starfile,starfilehr,minwavel
+     &               ,nsimplealbedo,nstarfile,starfile,starfilehr,minwavel,nswrnir
      namelist/aero_nl/l_source,l_bulk,apart,rhop,fcoeff,l_aerorad,aerofile
 !
 !     namelist parameter:
@@ -789,6 +986,7 @@
 
       call mpbcr(starbbtemp)
       call mpbci(nstartemp)
+      call mpbci(nswrnir)
       call mpbci(nsimplealbedo)
       call mpbci(nstarfile)
       call mpbcr(minwavel)
@@ -849,6 +1047,7 @@
         call solarini
         nstartemp = 1
         call mpbci(nstartemp)
+      call mpbci(nswrnir)
       else if (nstartemp > 0) then
         call solarini
       else
@@ -1644,6 +1843,11 @@
       real zexp(NHOR),zu(NHOR),zb1(NHOR)
 !
       logical losun(NHOR)         ! flag for gridpoints with insolation
+      integer :: isun(NHOR), nsun, jhor, js
+      logical :: lhaso3
+      real :: zlwp1, ztau1, zlog1, zlogtau, zsqmu, zb1_1, zb2_1, zom0_1
+      real :: zun_1, zuz_1, zu_1, zexp_1, zr_1, zr1s_1, zt2s_1, zr2s_1
+      real :: zr1_1, zt2_1, zr2_1, zc_1, z1mc_1
 !
 !     cosine of zenith angle
 !
@@ -1676,7 +1880,18 @@
 !     from this point on, all computations are made only for
 !     points with solar insolation > zero
 !
-      losun(:) = (zftop1(:) + zftop2(:) > zero)
+      nsun = 0
+      do jhor = 1, NHOR
+         if (zftop1(jhor) + zftop2(jhor) > zero) then
+            losun(jhor) = .true.
+            nsun = nsun + 1
+            isun(nsun) = jhor
+         else
+            losun(jhor) = .false.
+         endif
+      enddo
+      if (nsun == 0) return
+      lhaso3 = any(dqo3(:,1:NLEV) > 0.)
 !
 !     cloud properites
 !
@@ -1729,39 +1944,47 @@
        zrcl2s(:,:)=0.0
        ztcl2s(:,:)=1.0
        do jlev=1,NLEV
-        where(losun(:) .and. (dcc(:,jlev) > 0.))
-         zlwp(:) = min(1000.0,1000.*dql(:,jlev)*dp(:)/ga*dsigma(jlev))
-         ztau(:) = 2.0 * ALOG10(zlwp(:)+1.5)**3.9
-         zlog(:) = log(1000.0 / ztau(:))
-         zb2(:)  = zb4 / ALOG(3.+0.1*ztau(:))
-         zom0(:) = min(0.9999,1.0 - zb5 * zlog(:))
-         zun(:)  = 1.0 - zom0(:)
-         zuz(:)  = zun(:) + 2.0 * zb2(:) * zom0(:)
-         zu(:)   = SQRT(zuz(:)/zun(:))
-         zexp(:) = exp(min(25.0,ztau(:)*SQRT(zuz(:)*zun(:))/zmu00))
-         zr(:)   = (zu(:)+1.)*(zu(:)+1.)*zexp(:)                      &
-     &           - (zu(:)-1.)*(zu(:)-1.)/zexp(:)
-         zrcl1s(:,jlev)=1.-1./(1.+zb3*ztau(:))
-         ztcl2s(:,jlev)=4.*zu(:)/zr(:)
-         zrcl2s(:,jlev)=(zu(:)*zu(:)-1.)/zr(:)*(zexp(:)-1./zexp(:))
+        do js=1,nsun
+         jhor=isun(js)
+         if(dcc(jhor,jlev) > 0.) then
+          zlwp1 = min(1000.0,1000.*dql(jhor,jlev)*dp(jhor)/ga*dsigma(jlev))
+          ztau1 = 2.0 * ALOG10(zlwp1+1.5)**3.9
+          zlog1 = log(1000.0 / ztau1)
+          zlogtau = 1.0 / ALOG(3.+0.1*ztau1)
+          zb2_1  = zb4 * zlogtau
+          zom0_1 = min(0.9999,1.0 - zb5 * zlog1)
+          zun_1  = 1.0 - zom0_1
+          zuz_1  = zun_1 + 2.0 * zb2_1 * zom0_1
+          zu_1   = SQRT(zuz_1/zun_1)
+          zexp_1 = exp(min(25.0,ztau1*SQRT(zuz_1*zun_1)/zmu00))
+          zr_1   = (zu_1+1.)*(zu_1+1.)*zexp_1 - (zu_1-1.)*(zu_1-1.)/zexp_1
+          zr1s_1 = 1.-1./(1.+zb3*ztau1)
+          zt2s_1 = 4.*zu_1/zr_1
+          zr2s_1 = (zu_1*zu_1-1.)/zr_1*(zexp_1-1./zexp_1)
+          zrcl1s(jhor,jlev) = zr1s_1
+          ztcl2s(jhor,jlev) = zt2s_1
+          zrcl2s(jhor,jlev) = zr2s_1
 
-         zb1(:)  = tswr1*SQRT(zmu0(:))
-         zb2(:)  = tswr2*SQRT(zmu0(:))/ALOG(3.+0.1*ztau(:))
-         zom0(:) = min(0.9999,1.-tswr3*zmu0(:)*zmu0(:)*zlog(:))
-         zun(:)  = 1.0 - zom0(:)
-         zuz(:)  = zun(:) + 2.0 * zb2(:) * zom0(:)
-         zu(:)   = SQRT(zuz(:)/zun(:))
-         zexp(:) = exp(min(25.0,ztau(:)*SQRT(zuz(:)*zun(:))/zmu0(:)))
-         zr(:)   = (zu(:)+1.)*(zu(:)+1.)*zexp(:)                      &
-     &           - (zu(:)-1.)*(zu(:)-1.)/zexp(:)
-         zrcl1(:,jlev)=1.-1./(1.+zb1(:)*ztau(:)/zmu0(:))
-         ztcl2(:,jlev)=4.*zu(:)/zr(:)
-         zrcl2(:,jlev)=(zu(:)*zu(:)-1.)/zr(:)*(zexp(:)-1./zexp(:))
-         zrcl1(:,jlev)=zcs(:)*zrcl1(:,jlev)+(1.-zcs(:))*zrcl1s(:,jlev)
-         ztcl2(:,jlev)=zcs(:)*ztcl2(:,jlev)+(1.-zcs(:))*ztcl2s(:,jlev)
-         zrcl2(:,jlev)=zcs(:)*zrcl2(:,jlev)+(1.-zcs(:))*zrcl2s(:,jlev)
-        endwhere
-        zcs(:)=zcs(:)*(1.-dcc(:,jlev))
+          zsqmu  = SQRT(zmu0(jhor))
+          zb1_1  = tswr1*zsqmu
+          zb2_1  = tswr2*zsqmu*zlogtau
+          zom0_1 = min(0.9999,1.-tswr3*zmu0(jhor)*zmu0(jhor)*zlog1)
+          zun_1  = 1.0 - zom0_1
+          zuz_1  = zun_1 + 2.0 * zb2_1 * zom0_1
+          zu_1   = SQRT(zuz_1/zun_1)
+          zexp_1 = exp(min(25.0,ztau1*SQRT(zuz_1*zun_1)/zmu0(jhor)))
+          zr_1   = (zu_1+1.)*(zu_1+1.)*zexp_1 - (zu_1-1.)*(zu_1-1.)/zexp_1
+          zr1_1  = 1.-1./(1.+zb1_1*ztau1/zmu0(jhor))
+          zt2_1  = 4.*zu_1/zr_1
+          zr2_1  = (zu_1*zu_1-1.)/zr_1*(zexp_1-1./zexp_1)
+          zc_1   = zcs(jhor)
+          z1mc_1 = 1. - zc_1
+          zrcl1(jhor,jlev) = zc_1*zr1_1 + z1mc_1*zr1s_1
+          ztcl2(jhor,jlev) = zc_1*zt2_1 + z1mc_1*zt2s_1
+          zrcl2(jhor,jlev) = zc_1*zr2_1 + z1mc_1*zr2s_1
+         endif
+         zcs(jhor)=zcs(jhor)*(1.-dcc(jhor,jlev))
+        enddo
        enddo ! jlev
       endif ! (nswrcl == 0)
       endif ! (nclouds == 1)
@@ -1903,7 +2126,7 @@
      &           +0.0658*zo3(:)/(1.+(103.6*zo3(:))**3))/zsolar1
        ztwvt(:)=1.
        zwv(:)=zywvt(:)+zbetta*zwvt(:)
-       ztwvtu(:)=1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))  &
+       ztwvtu(:)=1.-swh2oabs(zwv(:))  &
      &            /zsolar2
 !
 !     clear sky scattering (Rayleigh scatterin lower most level only)
@@ -1924,111 +2147,77 @@
       endwhere
 !
       do jlev=1,NLEV
-       where(losun(:))
-        zt1(:,jlev)=zta1(:)
-        zt2(:,jlev)=zta2(:)
-        zr1s(:,jlev)=zra1s(:)
-        zr2s(:,jlev)=zra2s(:)
-!
-!     set single layer R and T:
+       do js=1,nsun
+        jhor=isun(js)
+        zt1(jhor,jlev)=zta1(jhor)
+        zt2(jhor,jlev)=zta2(jhor)
+        zr1s(jhor,jlev)=zra1s(jhor)
+        zr2s(jhor,jlev)=zra2s(jhor)
 !
 !     1. spectral range 1:
 !
-!     a) R
-!     clear part: rayleigh scattering (only lowermost level)
-!     cloudy part: cloud albedo
-!     aerosols: reflected direct light (zaerr1) and reflected scattered light (zaerr1s)
-!     in clear sky portion only (i.e. (1-dcc))
+        zrb1(jhor,jlev)=zrcs(jhor,jlev)+zrcl1(jhor,jlev)*dcc(jhor,jlev)*nclouds &
+     &                 +zaerr1(jhor,jlev)*(1.-dcc(jhor,jlev))*l_aerorad
+        zrb1s(jhor,jlev)=zrcsu(jhor,jlev)+zrcl1s(jhor,jlev)*dcc(jhor,jlev)*nclouds &
+     &                  +zaerr1s(jhor,jlev)*(1.-dcc(jhor,jlev))*l_aerorad
 !
-        zrb1(:,jlev)=zrcs(:,jlev)+zrcl1(:,jlev)*dcc(:,jlev)*nclouds+zaerr1(:,jlev)*(1.-dcc(:,jlev))*l_aerorad
-        !zrb1(:,jlev) = zta1*zrcs(:,jlev)+(1-zta1)*zrcsu(:,jlev)+zrcl1(:,jlev)*dcc(:,jlev)
-        zrb1s(:,jlev)=zrcsu(:,jlev)+zrcl1s(:,jlev)*dcc(:,jlev)*nclouds+zaerr1s(:,jlev)*(1.-dcc(:,jlev))*l_aerorad
+!     ozon absorption (skip pow() when ozone is zero)
 !
-!     b) T
+        if(lhaso3) then
+         zlwp1=zxo3l(jhor,jlev)
+         ztau1=(1.-(0.02118*zlwp1/(1.+0.042*zlwp1+0.000323*zlwp1*zlwp1) &
+     &             +1.082*zlwp1/((1.+138.6*zlwp1)**0.805)               &
+     &             +0.0658*zlwp1/(1.+(103.6*zlwp1)**3))/zsolar1)        &
+     &        /zto3t(jhor)
+         zto3t(jhor)=zto3t(jhor)*ztau1
+         zlwp1=zxo3t(jhor)+zmbar*(zo3t(jhor)-zo3l(jhor,jlev))
+         zlog1=zto3tu(jhor)                                             &
+     &        /(1.-(0.02118*zlwp1/(1.+0.042*zlwp1+0.000323*zlwp1*zlwp1) &
+     &             +1.082*zlwp1/((1.+138.6*zlwp1)**0.805)               &
+     &             +0.0658*zlwp1/(1.+(103.6*zlwp1)**3))/zsolar1)
+         zto3tu(jhor)=zto3tu(jhor)/zlog1
+        else
+         ztau1=1.
+         zlog1=1.
+        endif
 !
-!     ozon absorption
+        ztb1(jhor,jlev)=1.-(1.-ztau1)*(1.-dcc(jhor,jlev))-zrb1(jhor,jlev)
+        ztb1u(jhor,jlev)=1.-(1.-zlog1)*(1.-dcc(jhor,jlev))-zrb1s(jhor,jlev)
 !
-!     downward beam
-!
-        zo3(:)=zxo3l(:,jlev)
-        zto3(:)=(1.                                                     &
-     &          -(0.02118*zo3(:)/(1.+0.042*zo3(:)+0.000323*zo3(:)**2)   &
-     &           +1.082*zo3(:)/((1.+138.6*zo3(:))**0.805)               &
-     &           +0.0658*zo3(:)/(1.+(103.6*zo3(:))**3))/zsolar1)        &
-     &         /zto3t(:)
-        zto3t(:)=zto3t(:)*zto3(:)
-!
-!     upward scattered beam
-!
-        zo3(:)=zxo3t(:)+zmbar*(zo3t(:)-zo3l(:,jlev))
-        zto3u(:)=zto3tu(:)                                              &
-     &         /(1.-(0.02118*zo3(:)/(1.+0.042*zo3(:)+0.000323*zo3(:)**2)&
-     &              +1.082*zo3(:)/((1.+138.6*zo3(:))**0.805)            &
-     &              +0.0658*zo3(:)/(1.+(103.6*zo3(:))**3))/zsolar1)
-        zto3tu(:)=zto3tu(:)/zto3u(:)
-!
-!     total T = 1-(A(ozon)+R(rayl.))*(1-dcc)-R(cloud)*dcc
-!
-        ztb1(:,jlev)=1.-(1.-zto3(:))*(1.-dcc(:,jlev))-zrb1(:,jlev)   
-        ztb1u(:,jlev)=1.-(1.-zto3u(:))*(1.-dcc(:,jlev))-zrb1s(:,jlev) 
-!
-!     make combined layer R_ab, R_abs, T_ab and T_abs
-!
-        z1mrabr(:)=1./(1.-zra1s(:)*zrb1s(:,jlev))
-        zra1(:)=zra1(:)+zta1(:)*zrb1(:,jlev)*zta1s(:)*z1mrabr(:)
-        zta1(:)=zta1(:)*ztb1(:,jlev)*z1mrabr(:)
-        zra1s(:)=zrb1s(:,jlev)+ztb1u(:,jlev)*zra1s(:)*ztb1(:,jlev)      &
-     &                        *z1mrabr(:)
-        zta1s(:)=ztb1u(:,jlev)*zta1s(:)*z1mrabr(:)
+        zr_1=1./(1.-zra1s(jhor)*zrb1s(jhor,jlev))
+        zra1(jhor)=zra1(jhor)+zta1(jhor)*zrb1(jhor,jlev)*zta1s(jhor)*zr_1
+        zta1(jhor)=zta1(jhor)*ztb1(jhor,jlev)*zr_1
+        zra1s(jhor)=zrb1s(jhor,jlev)+ztb1u(jhor,jlev)*zra1s(jhor)*ztb1(jhor,jlev)*zr_1
+        zta1s(jhor)=ztb1u(jhor,jlev)*zta1s(jhor)*zr_1
 !
 !     2. spectral range 2:
 !
-!     a) R
+        zrb2(jhor,jlev)=zrcl2(jhor,jlev)*dcc(jhor,jlev)*nclouds         &
+     &                 +zaerr2(jhor,jlev)*(1.-dcc(jhor,jlev))*l_aerorad
+        zrb2s(jhor,jlev)=zrcl2s(jhor,jlev)*dcc(jhor,jlev)*nclouds       &
+     &                  +zaerr2s(jhor,jlev)*(1.-dcc(jhor,jlev))*l_aerorad
 !
-!     cloud albedo
-!     aerosol scattering from clear sky part
+        zlwp1=zywvl(jhor,jlev)
+        ztau1=(1.-swh2oabs(zlwp1)/zsolar2)/ztwvt(jhor)
+        ztwvt(jhor)=ztwvt(jhor)*ztau1
 !
-        zrb2(:,jlev)=zrcl2(:,jlev)*dcc(:,jlev)*nclouds+zaerr2(:,jlev)*(1.-dcc(:,jlev))*l_aerorad
-        zrb2s(:,jlev)=zrcl2s(:,jlev)*dcc(:,jlev)*nclouds+zaerr2s(:,jlev)*(1.-dcc(:,jlev))*l_aerorad
+        zlwp1=zywvt(jhor)+zbetta*(zwvt(jhor)-zwvl(jhor,jlev))
+        zlog1=ztwvtu(jhor)/(1.-swh2oabs(zlwp1)/zsolar2)
+        ztwvtu(jhor)=ztwvtu(jhor)/zlog1
 !
-!     b) T
+        ztb2(jhor,jlev)=1.-(1.-ztau1)*(1.-dcc(jhor,jlev)*nclouds)       &
+     &                 -(1.-ztcl2(jhor,jlev))*dcc(jhor,jlev)*nclouds    &
+     &                 -(1.-zaert2(jhor,jlev))*(1.-dcc(jhor,jlev))*l_aerorad
+        ztb2u(jhor,jlev)=1.-(1.-zlog1)*(1.-dcc(jhor,jlev)*nclouds)      &
+     &                  -(1.-ztcl2s(jhor,jlev))*dcc(jhor,jlev)*nclouds  &
+     &                  -(1.-zaert2s(jhor,jlev))*(1.-dcc(jhor,jlev))*l_aerorad
 !
-!     water vapor absorption
-!
-!     downward beam
-!
-       zwv(:)=zywvl(:,jlev)
-       ztwv(:)=(1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))   &
-     &            /zsolar2)                                             &
-     &        /ztwvt(:)
-       ztwvt(:)=ztwvt(:)*ztwv(:)
-!
-!     upward scattered beam
-!
-       zwv(:)=zywvt(:)+zbetta*(zwvt(:)-zwvl(:,jlev))
-       ztwvu(:)=ztwvtu(:)                                               &
-     &         /(1.-2.9*zwv(:)/((1.+141.5*zwv(:))**0.635+5.925*zwv(:))  &
-     &            /zsolar2)
-       ztwvtu(:)=ztwvtu(:)/ztwvu(:)
-!
-!     total T = 1-A(water vapor)*(1.-dcc)-(A(cloud)+R(cloud))*dcc
-!
-        ztb2(:,jlev)=1.-(1.-ztwv(:))*(1.-dcc(:,jlev)*nclouds)                   &
-     &              -(1.-ztcl2(:,jlev))*dcc(:,jlev)*nclouds                     &
-                    -(1.-zaert2(:,jlev))*(1.-dcc(:,jlev))*l_aerorad
-        ztb2u(:,jlev)=1.-(1.-ztwvu(:))*(1.-dcc(:,jlev)*nclouds)                 &
-     &               -(1.-ztcl2s(:,jlev))*dcc(:,jlev)*nclouds                   &
-                     -(1.-zaert2s(:,jlev))*(1.-dcc(:,jlev))*l_aerorad
-!
-!     make combined layer R_ab, R_abs, T_ab and T_abs
-!
-        z1mrabr(:)=1./(1.-zra2s(:)*zrb2s(:,jlev))
-        zra2(:)=zra2(:)+zta2(:)*zrb2(:,jlev)*zta2s(:)*z1mrabr(:)
-        zta2(:)=zta2(:)*ztb2(:,jlev)*z1mrabr(:)
-        zra2s(:)=zrb2s(:,jlev)+ztb2u(:,jlev)*zra2s(:)*ztb2(:,jlev)      &
-     &                       *z1mrabr(:)
-        zta2s(:)=ztb2u(:,jlev)*zta2s(:)*z1mrabr(:)
-       endwhere
+        zr_1=1./(1.-zra2s(jhor)*zrb2s(jhor,jlev))
+        zra2(jhor)=zra2(jhor)+zta2(jhor)*zrb2(jhor,jlev)*zta2s(jhor)*zr_1
+        zta2(jhor)=zta2(jhor)*ztb2(jhor,jlev)*zr_1
+        zra2s(jhor)=zrb2s(jhor,jlev)+ztb2u(jhor,jlev)*zra2s(jhor)*ztb2(jhor,jlev)*zr_1
+        zta2s(jhor)=ztb2u(jhor,jlev)*zta2s(jhor)*zr_1
+       enddo
       enddo
       where(losun(:))
        zt1(:,NLEP)=zta1(:)
@@ -2193,6 +2382,9 @@
       real zps2(NHOR)           ! ps**2
       real zsigh2(NLEP)         ! sigmah**2
 !
+      real :: zinvln10, zswv, zsco2, zso3, zah, zac, zth, zao, ztc
+      logical :: lhaso3
+!
 !     entropy
 !
       real zbue1(NHOR,0:NLEP),zbue2(NHOR,0:NLEP)
@@ -2202,6 +2394,7 @@
 !
 
       zero=1.E-6                     ! small number
+      zinvln10=1.0/log(10.0)
 
       zao30= 0.209*(7.E-5)**0.436    ! to get a(o3)=0 for o3=0
       zco20=0.0676*(0.01022)**0.421  ! to get a(co2)=0 for co2=0
@@ -2291,6 +2484,7 @@
         ztaucc0(:,jlev)=1.-dcc(:,jlev)*(1.-exp(zzf3*dql(:,jlev)*dp(:)))
        endif
       enddo
+      lhaso3 = any(zqo3(:,:) > 0.)
 !
 !     b) transmissivities, effective radiations and fluxes
 !
@@ -2301,71 +2495,54 @@
        zsumo3(:)=0.
        zsumco2(:)=0.
 !
-!     transmissivities
+!     transmissivities (fused per-column loop to keep intermediates in registers)
 !
        do jlev2=jlev,NLEV
         jlep2=jlev2+1
-        zsumwv(:)=zsumwv(:)+zq(:,jlev2)
-        zsumo3(:)=zsumo3(:)+zqo3(:,jlev2)
-        zsumco2(:)=zsumco2(:)+zqco2(:,jlev2)
-!
-!     clear sky transmisivity
-!
-!     h2o absorption:
-!
-!     a) 6.3mu
-!
-        where(zsumwv(:) <= 0.01)
-         zah2o(:)=0.846*(zsumwv(:)+3.59E-5)**0.243-zh2o0a
-        elsewhere
-         zah2o(:)=0.24*ALOG10(zsumwv(:)+0.01)+zah2oc
-        endwhere
-!
-!     b) continuum
-!
-        if(th2oc > 0.) then
-         zah2o(:)=AMIN1(zah2o(:)+(1.-exp(-th2oc*zsumwv(:))),1.)
-        endif
-!
-!     co2 absorption:
-!
-        where(zsumco2(:) <= 1.0)
-         zaco2(:)=0.0676*(zsumco2(:)+0.01022)**0.421-zco20
-        elsewhere
-         zaco2(:)=0.0546*ALOG10(zsumco2(:))+zaco2c
-        endwhere
-!
-!     Boer et al. (1984) scheme for t(h2o) at co2 overlapp
-!
-        where(zsumwv(:)<= 2.)
-         zth2o(:)=1.-(0.832*(zsumwv(:)+0.0286)**0.26-zh2o0)
-        elsewhere
-         zth2o(:)=max(0.,zth2oc-0.1196*log(zsumwv(:)-0.6931))
-        endwhere
-!
-!     o3 absorption:
-!
-        where(zsumo3(:) <= 0.01)
-         zao3(:)= 0.209*(zsumo3(:)+7.E-5)**0.436 - zao30
-        elsewhere
-         zao3(:)= 0.0212*log10(zsumo3(:))+zao3c
-        endwhere
-!
-!     total clear sky transmissivity
-!
-        ztaucs(:,jlev2)=1.-zah2o(:)-zao3(:)-zaco2(:)*zth2o(:)
-!
-!     bound transmissivity:
-!
-        ztaucs(:,jlev2)=AMIN1(1.-zero,AMAX1(zero,ztaucs(:,jlev2)))
-!
-!     cloud transmisivity assuming random overlap
-!
-        ztaucc(:)=ztaucc(:)*ztaucc0(:,jlev2)
-!
-!     total transmissivity
-!
-        ztau(:,jlev2)=ztaucs(:,jlev2)*ztaucc(:)
+        do jhor=1,NHOR
+         zswv=zsumwv(jhor)+zq(jhor,jlev2)
+         zsumwv(jhor)=zswv
+         zsco2=zsumco2(jhor)+zqco2(jhor,jlev2)
+         zsumco2(jhor)=zsco2
+!        h2o absorption: 6.3mu + continuum
+         if(zswv <= 0.01) then
+          zah=0.846*(zswv+3.59E-5)**0.243-zh2o0a
+         else
+          zah=0.24*(log(zswv+0.01)*zinvln10)+zah2oc
+         endif
+         if(th2oc > 0.) then
+          zah=min(zah+(1.-exp(-th2oc*zswv)),1.)
+         endif
+!        co2 absorption
+         if(zsco2 <= 1.0) then
+          zac=0.0676*(zsco2+0.01022)**0.421-zco20
+         else
+          zac=0.0546*(log(zsco2)*zinvln10)+zaco2c
+         endif
+!        Boer et al. (1984) scheme for t(h2o) at co2 overlap
+         if(zswv <= 2.) then
+          zth=1.-(0.832*(zswv+0.0286)**0.26-zh2o0)
+         else
+          zth=max(0.,zth2oc-0.1196*log(zswv-0.6931))
+         endif
+!        o3 absorption (skip pow() when ozone is zero)
+         if(lhaso3) then
+          zso3=zsumo3(jhor)+zqo3(jhor,jlev2)
+          zsumo3(jhor)=zso3
+          if(zso3 <= 0.01) then
+           zao=0.209*(zso3+7.E-5)**0.436-zao30
+          else
+           zao=0.0212*(log(zso3)*zinvln10)+zao3c
+          endif
+         else
+          zao=0.
+         endif
+!        total clear-sky and cloudy transmissivity
+         ztc=min(1.-zero,max(zero,1.-zah-zao-zac*zth))
+         ztaucs(jhor,jlev2)=ztc
+         ztaucc(jhor)=ztaucc(jhor)*ztaucc0(jhor,jlev2)
+         ztau(jhor,jlev2)=ztc*ztaucc(jhor)
+        enddo
        enddo
 !
 !     upward and downward effective SBK*T**4

@@ -97,6 +97,7 @@
 !
 !     initialize ice (and ocean)
 !
+      call oceansetradius(plarad)
       call iceini(n_start_step,nrestart,noutput,m_days_per_year         &
      &     ,ngui,cts,csst,cmld,cicec,ciced,csnow,mtspd,day_24hr,deglat &
      &     ,icemod_namelist,oceanmod_namelist,ice_output,ocean_output)
@@ -208,6 +209,8 @@
        call icestep(cheata,cshfla,cshdta,clhfla,clhdta,clwfla,cswfla    &
      &             ,cpmea,croffa,cprsa,ctauxa,ctauya,cust3a,cts,cicec   &
      &             ,ciced,csnow,csmelt,csndch,csst,cmld)
+!
+       call oceangetqhd(dohdf,nohdf)
 !
        cheata(:)=0.
        cpmea(:)=0.

@@ -68,14 +68,14 @@ if [ $MOST_F90 != "NO_F90" ] ; then
       echo "gfortran version " $GFMAJ.$GFMIN
       # flags for gfortran version >= 4.9 [ -ffpe-summary ]
       if [ "$GFVER" -ge "409" ] ; then
-         MOST_F90_OPTS="-O3 -cpp -fcheck=all -ffixed-line-length-132 -ffpe-trap=invalid,zero,overflow -ffpe-summary=none -finit-real=zero"
+         MOST_F90_OPTS="-O3 -march=native -funroll-loops -cpp -ffixed-line-length-132 -ffpe-trap=invalid,zero,overflow -ffpe-summary=none -finit-real=zero"
          DEBUG_F90_OPTS="-ggdb -Og -cpp -ffpe-trap=invalid,zero,overflow -ffpe-summary=none -fcheck=all -finit-real=snan"
          echo > most_precision_options "MOST_PREC=-fdefault-real-8"
          echo > most_precision_optionsx "MOST_PREC=-fdefault-real-"
          PREC_OPTS="-fdefault-real-8"
       # flags for gfortran version 4.5 - 4.8
       elif [ "$GFVER" -ge "405" ] ; then
-         MOST_F90_OPTS="-O3 -cpp -fcheck=all -ffixed-line-length-132 -finit-real=zero -ffpe-trap=invalid,zero,overflow"
+         MOST_F90_OPTS="-O3 -march=native -funroll-loops -cpp -ffixed-line-length-132 -finit-real=zero -ffpe-trap=invalid,zero,overflow"
          DEBUG_F90_OPTS="-ggdb -Og -cpp -ffpe-trap=invalid,zero,overflow -fcheck=all -finit-real=snan"
          echo > most_precision_options "MOST_PREC=-fdefault-real-8"
          echo > most_precision_optionsx "MOST_PREC=-fdefault-real-"

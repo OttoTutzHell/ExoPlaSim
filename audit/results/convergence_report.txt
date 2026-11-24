@@ -1,0 +1,36 @@
+== v_ctl
+  top of atmosphere net     -0.30
+  surface net               -0.10
+  atmosphere residual       -0.20   (toa - surface)
+  storage: sea ice          -0.09   (ice volume +0.009 m/yr)
+  storage: land snow        -0.00
+  storage: open mixed layer -0.02
+  surface net - storage      0.00   (unexplained)
+  surface temperature trend -0.033 K/yr
+
+  toa              -0.3035  limit 0.5      ok
+  surface          -0.1025  limit 0.5      ok
+  atmosphere       -0.2011  limit 1        ok
+  ts_trend         -0.0327  limit 0.05     ok
+  seaice_trend      0.0013  limit 0.002    ok
+  snow_trend        0.0000  limit 0.01     ok
+  unexplained       0.0004  limit 0.5      ok
+CONVERGED
+== v_both
+  top of atmosphere net     -0.46
+  surface net               -0.12
+  atmosphere residual       -0.34   (toa - surface)
+  storage: sea ice          -0.08   (ice volume +0.008 m/yr)
+  storage: land snow        -0.00
+  storage: open mixed layer -0.00
+  surface net - storage     -0.04   (unexplained)
+  surface temperature trend -0.027 K/yr
+
+  toa              -0.4611  limit 0.5      ok
+  surface          -0.1209  limit 0.5      ok
+  atmosphere       -0.3402  limit 1        ok
+  ts_trend         -0.0274  limit 0.05     ok
+  seaice_trend      0.0013  limit 0.002    ok
+  snow_trend        0.0000  limit 0.01     ok
+  unexplained      -0.0359  limit 0.5      ok
+CONVERGED

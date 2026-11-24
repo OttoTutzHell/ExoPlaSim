@@ -429,6 +429,7 @@
 !       **********************************
         
         call writegp(40,dmld,110,0)
+        if (nohdf > 0) call writegp(40,dohdf,330,0)
         
 !       ***********************
 !       * surface temperature *
@@ -490,6 +491,10 @@
         
         aadmld(:) = aadmld(:)/real(naccuout)
         call writegp(40,aadmld,110,0)
+        if (nohdf > 0) then
+          aadohdf(:) = aadohdf(:)/real(naccuout)
+          call writegp(40,aadohdf,330,0)
+        endif
         
 !       ***********************
 !       * surface temperature *
@@ -2446,6 +2451,7 @@
           aadcc(:,j) = 0.
         enddo
         aadmld(:)       = 0.
+        aadohdf(:)      = 0.
         aadwatc(:)      = 0.
         aadsnow(:)      = 0.
         aadust3(:)      = 0.
@@ -2566,6 +2572,7 @@
           aadcc(:,j) = aadcc(:,j) + dcc(:,j)            
         enddo
         aadmld(:)       = aadmld(:)       + dmld(:)     
+        aadohdf(:)      = aadohdf(:)      + dohdf(:)
         aadwatc(:)      = aadwatc(:)      + dwatc(:)     
         aadsnow(:)      = aadsnow(:)      + dsnow(:)       
         aadust3(:)      = aadust3(:)      + dust3(:)         

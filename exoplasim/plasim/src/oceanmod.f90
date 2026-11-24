@@ -49,6 +49,9 @@
       real :: taunc             =  0.   ! newtonian cooling timescale (d)
       real :: vdiffkl(NLEV_OCE) = 1.E-4 ! vertikal diffusion coeff. [m**2/s]
       real :: hdiffk(NLEV_OCE)  = 1.E3  ! horizontal diffusion coeff. [m**2/s]
+      real :: hdiffzon          = 1.0   ! factor on hdiffk for the zonal direction
+      real :: oradius           = PLARAD! planet radius used by hdiffo [m]
+                                        ! (set from the planet by oceansetradius)
 !
 !     global integer
 !
@@ -147,7 +150,7 @@
 !
       namelist/oceanmod_nl/ndiag,nout,nfluko,ntspd,nocean,nprint,nprhor    &
     &                  ,nperpetual_ocean,naomod,nlsg,taunc,dlayer,mldepth       &
-    &                  ,vdiffkl,newsurf,hdiffk,nentropy,nhdiff
+    &                  ,vdiffkl,newsurf,hdiffk,nentropy,nhdiff,hdiffzon
 !
 !     get process id
 !
@@ -225,6 +228,7 @@
       call mpbcr(solar_day)
       call mpbcrn(vdiffkl,NLEV_OCE)
       call mpbcrn(hdiffk,NLEV_OCE)
+      call mpbcr(hdiffzon)
       call mpbcrn(dlayer,NLEV_OCE)
       call mpbcr(TFREEZE)
 !
@@ -1304,6 +1308,8 @@
       real :: zdtdt(NLON,NLAT),zentro(NLON,NLAT)
       real :: zdtdtp(NHOR),zentrop(NHOR)
       real :: ztold(NLON,NLAT)
+      real :: zfx(0:NLON-1,NLAT),zfy(NLON,NLAT-1),zmo(NLON,NLAT)
+      real :: zcx(NLAT),zcy(NLAT),zinvdlam
 !
       zsst(:,:)=psst(:,:)
 !
@@ -1311,10 +1317,33 @@
        yentro(:,7)=0.
       endif
       zdelt=dtmix/real(nsub)
+      zinvdlam=1.0/dlam
       call mpgagp(zls,yls,1)
 !
+      if(mypid==NROOT) then
+       do jlat=1,NLAT
+        do jlon=1,NLON
+         if(zls(jlon,jlat) < 1.) then
+          zmo(jlon,jlat)=1.0
+         else
+          zmo(jlon,jlat)=0.0
+         endif
+        enddo
+        do jlon=1,NLON-1
+         zfx(jlon,jlat)=zmo(jlon,jlat)*zmo(jlon+1,jlat)*zinvdlam
+        enddo
+        zfx(0,jlat)=zmo(1,jlat)*zmo(NLON,jlat)*zinvdlam
+       enddo
+       do jlat=1,NLAT-1
+        zinvdphi=cphih(jlat)/dphi(jlat)
+        do jlon=1,NLON
+         zfy(jlon,jlat)=zmo(jlon,jlat)*zmo(jlon,jlat+1)*zinvdphi
+        enddo
+       enddo
+      endif
+!
       do jlev=1,NLEV_OCE
-       zfac=hdiffk(jlev)/plarad/plarad
+       zfac=hdiffk(jlev)/oradius/oradius
 !
        call mpgagp(zt,zsst(1,jlev),1)
 !
@@ -1333,51 +1362,53 @@
         zztm=zztm/zzgw
         zt(:,:)=zt(:,:)-zztm
         ztold(:,:)=zt(:,:)
+        do jlat=1,NLAT
+         zcx(jlat)=zfac*hdiffzon*zinvdlam/(cphi(jlat)*cphi(jlat))
+         zcy(jlat)=zfac/dmue(jlat)
+        enddo
+        zdty(:,0)=0.
+        zdty(:,NLAT)=0.
 !
         do jit=1,nsub
-         where(zls(2:NLON,:) < 1. .and. zls(1:NLON-1,:) < 1.)
-          zdtx(1:NLON-1,:)=(zt(2:NLON,:)-zt(1:NLON-1,:))/dlam
-         elsewhere
-          zdtx(1:NLON-1,:)=0.
-         endwhere
-         where(zls(1,:) < 1. .and. zls(NLON,:) < 1.)
-          zdtx(0,:)=(zt(1,:)-zt(NLON,:))/dlam
-         elsewhere
-          zdtx(0,:)=0.
-         endwhere
-         zdtx(NLON,:)=zdtx(0,:)
+         do jlat=1,NLAT
+          zdtx(0,jlat)=(zt(1,jlat)-zt(NLON,jlat))*zfx(0,jlat)
+          do jlon=1,NLON-1
+           zdtx(jlon,jlat)=(zt(jlon+1,jlat)-zt(jlon,jlat))*zfx(jlon,jlat)
+          enddo
+          zdtx(NLON,jlat)=zdtx(0,jlat)
+         enddo
 !
          do jlat=1,NLAT-1
           jlap=jlat+1
-          where(zls(:,jlap) < 1. .and. zls(:,jlat) < 1.)
-           zdty(:,jlat)=(zt(:,jlap)-zt(:,jlat))*cphih(jlat)/dphi(jlat)
-          elsewhere
-           zdty(:,jlat)=0.
-          endwhere
-         enddo
-         zdty(:,0)=0.
-         zdty(:,NLAT)=0.
-!
-         do jlat=1,NLAT
-          jlam=jlat-1
           do jlon=1,NLON
-           jlom=jlon-1
-           if(zls(jlon,jlat) < 1.) then
-            zdtdt(jlon,jlat)=((zdtx(jlon,jlat)-zdtx(jlom,jlat))         &
-     &                        /dlam/cphi(jlat)/cphi(jlat)               &
-     &                       +(zdty(jlon,jlat)-zdty(jlon,jlam))         &
-     &                        /dmue(jlat))                              &
-     &                      *zfac
-           endif
+           zdty(jlon,jlat)=(zt(jlon,jlap)-zt(jlon,jlat))*zfy(jlon,jlat)
           enddo
          enddo
 !
          if(nentropy > 0) then
-          where(zls(:,:) < 1.)
-           zentro(:,:)=zdtdt(:,:)/(zt(:,:)+zztm)+zentro(:,:)/real(nsub)
-          endwhere
+          do jlat=1,NLAT
+           jlam=jlat-1
+           do jlon=1,NLON
+            if(zmo(jlon,jlat) > 0.) then
+             zdtdt(jlon,jlat)=(zdtx(jlon,jlat)-zdtx(jlon-1,jlat))*zcx(jlat) &
+      &                      +(zdty(jlon,jlat)-zdty(jlon,jlam))*zcy(jlat)
+             zentro(jlon,jlat)=zdtdt(jlon,jlat)/(zt(jlon,jlat)+zztm)+zentro(jlon,jlat)/real(nsub)
+             zt(jlon,jlat)=zt(jlon,jlat)+zdtdt(jlon,jlat)*zdelt
+            endif
+           enddo
+          enddo
+         else
+          do jlat=1,NLAT
+           jlam=jlat-1
+           zcxl=zcx(jlat)*zdelt
+           zcyl=zcy(jlat)*zdelt
+           do jlon=1,NLON
+            zt(jlon,jlat)=zt(jlon,jlat)+zmo(jlon,jlat)*(                    &
+      &                   (zdtx(jlon,jlat)-zdtx(jlon-1,jlat))*zcxl          &
+      &                  +(zdty(jlon,jlat)-zdty(jlon,jlam))*zcyl)
+           enddo
+          enddo
          endif
-         where(zls(:,:) < 1.) zt(:,:)=zt(:,:)+zdtdt(:,:)*zdelt
         enddo
         where(zls(:,:) < 1.) zdtdt(:,:)=(zt(:,:)-ztold(:,:))/dtmix
        endif
@@ -1396,3 +1427,38 @@
 !
       end subroutine hdiffo
 
+
+!     =========================
+!     SUBROUTINE OCEANSETRADIUS
+!     =========================
+
+      subroutine oceansetradius(prad)
+      use oceanmod
+!
+!     set the planet radius used by the horizontal diffusion
+!     (the module default is the Earth radius)
+!
+      real :: prad
+      if (prad > 0.) oradius = prad
+      return
+      end subroutine oceansetradius
+
+!     ======================
+!     SUBROUTINE OCEANGETQHD
+!     ======================
+
+      subroutine oceangetqhd(pqhd,khdiff)
+      use oceanmod
+!
+!     return the heating of the mixed layer by horizontal diffusion
+!     (W/m2; convergence of the diffusive ocean heat transport)
+!
+      real    :: pqhd(NHOR)
+      integer :: khdiff
+      khdiff = nhdiff
+      pqhd(:) = 0.
+      if (nhdiff > 0) then
+       where(yls(:) < 1.) pqhd(:) = yqhd(:)
+      endif
+      return
+      end subroutine oceangetqhd

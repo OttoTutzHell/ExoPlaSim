@@ -432,6 +432,8 @@
       real :: devap(NHOR) = 0.  ! surface evaporation
       real :: dtsa(NHOR)  = 0.  ! surface air temperature
       real :: dmld(NHOR)  = 0.  ! mixed-layer depth (output from ocean)
+      real :: dohdf(NHOR) = 0.  ! heating by horizontal ocean diffusion (W/m2)
+      integer :: nohdf    = 0   ! 1: ocean horizontal diffusion is on (output dohdf)
 !
       real dshdt(NHOR),dlhdt(NHOR)
       
@@ -543,6 +545,7 @@
       real :: aammr(NHOR,NLEP)    = 0. ! Accumulated aerosol mmr (kg/kg)
       real :: aanrho(NHOR,NLEP)   = 0. ! Accumulated aerosol number density (particles/m3)
       real :: aadmld(NHOR)        = 0.
+      real :: aadohdf(NHOR)       = 0.
       real :: aadt(NHOR,NLEP)     = 0.
       real :: aadwatc(NHOR)       = 0.
       real :: aadsnow(NHOR)       = 0.
