@@ -291,3 +291,32 @@ Star: Agol et al. 2021 values from the NASA Exoplanet Archive (2,566 K, 0.0898 M
 - It matches the interpolation and keeps the vault's bounds: absorbed 227 W/m² against the 295 ± 15 limit, warmest cell under 50 °C, most nightside land frozen.
 - Not converged by the stricter test: still warming 0.09 K/yr with sea ice thinning 0.5% a year. The equilibrium is a little warmer than these numbers, so the warmest cell will probably pass 50 °C. A slightly longer orbit (5.05–5.1 d) would leave margin.
 - Polity cells at T21, 2 m air temperature, no elevation correction: Quilatria 21.1 °C, Quedros 20.9, Deep Bay 31.5, Twin Rivers A 15.8, Desert Valley 39.6, Hot Desert River 25.1. Rain in the same cells: 0, 12, 0, 3, 100 and 1,195 mm/yr. **The western heartland is still desert.** Changing the star and orbit fixes the temperature level without straining the clouds; it does not move the rain.
+
+### Warmer atmosphere on a wider orbit: 5.40 days around TRAPPIST-1, 1% CO₂ (converged)
+
+To avoid crowding TRAPPIST-1 d (4.05 d), Ki-Engir was placed at **5.40 d** (1,034.6 W/m², 4:3 resonance with planet d, ~8.3 mutual Hill radii separation) with **1% CO₂** (`pCO2=0.01 bar`, `pN2=0.99 bar`), stock clouds, `nirabsorption=True`, `starspec=trap.dat`, rotated Middle Permian (270 Ma) PALEOMAP landmask/topography (raw PALEOMAP relief, max 1,752 m at T21; 25.8% global land), and `mldepth=10 m` (for faster thermal spin-up). Run for 46 model years at T21 L10 (`precision=8`, 2-core MPI); last 10 years (years 36–45) averaged:
+
+| quantity | 5.40 d, 1% CO₂ (converged) | 5.0 d, 400 ppm CO₂ (ref.) |
+|---|---|---|
+| T_s global / dayside / nightside (K) | 272.9 / 286.2 / 260.4 | 272.8 / 285.4 / 260.1 |
+| warmest / coldest cell (°C) | 38.3 / −87.2 | 49 / — |
+| dayside land at 15–30° / 30–60° of sun (°C) | 7.6 / 25.0 | 9.3 / 29.0 |
+| nightside land below freezing | 78% | 88% |
+| ice-free share of the ocean | 0.533 | 0.38 |
+| planetary albedo | 0.197 | 0.209 |
+| absorbed shortwave (W/m²; sfc / atm) | 207.8 (100.0 / 107.8) | 227 |
+| precipitation, global / land (mm/yr) | 742 / 734 | — / 969 |
+| TOA net / surface net, last 10 yr (W/m²) | −0.50 / −0.06 | +0.08 / — |
+
+- **Strictly converged on `exoplasim.convergence.isconverged(hist, window=10)`** (years 36–45): `toa = −0.498 W/m²`, `surface = −0.061 W/m²`, `atmosphere = −0.437 W/m²`, `ts_trend = −0.012 K/yr`, `seaice_trend = 0.0019`, `snow_trend = 0.0018`, `unexplained = +0.012 W/m²`. Nightside sea-ice thickening toward the 9 m cap was the slowest mode (~45 years even with a 10 m mixed layer).
+- **Capped snow runoff (`capped_snow_runoff()`):** 31.9% of land area sits at the 5 m snow cap, accounting for 22.7% of global runoff.
+- **Climate comparison vs. 5.0 d (400 ppm CO₂):** 1% CO₂ at 5.40 d reproduces the same global mean temperature (272.9 K) while lowering the warmest cell by ~11 °C (38.3 °C vs. 49+ °C), keeping absorbed shortwave well below the 295 ± 15 W/m² runaway bound (207.8 W/m²), and opening 53% of the ocean.
+- **Polity cells (T21, 2 m air temperature, no elevation correction):** Quilatria 10.9 °C (28 mm/yr), Quedros 20.4 °C (3 mm/yr), Silver Hordes 23.3 °C (1 mm/yr), Substellar point 28.8 °C (8,458 mm/yr), Terminator Cfb −12.5 °C (108 mm/yr). The western heartland remains dry; a slightly higher CO₂ fraction (~2–3%) or ocean heat transport (`oceandiffusion`) would lift Quilatria above the 14 °C target without approaching the 50 °C peak ceiling.
+
+## Performance optimizations (physics-preserving)
+
+To make long T21/T42 spin-ups practical without changing physics (no `-ffast-math`, FPE traps preserved):
+- **Build & compiler (`configure.sh`, `compile.sh`, `make_plasim`):** Moved `-fcheck=all` to debug-only flags, added `-march=native -funroll-loops`, fixed missing Fortran module dependencies, and enabled parallel `make -j`.
+- **Spectral & ocean kernels (`legmod.f90`, `fftmod.f90`, `radmod.f90`, `oceanmod.f90`):** Folded `skgpsp`/`skspgp` physics filters into `legini`, exploited hemispheric symmetry in single-CPU `sp2fc`/`sp2fcdmu`/`dv2uv`, converted `dfft4`/`ifft4`/`dfft8`/`ifft8` to unit-stride / nested loops, register-fused `lwr` inner loops and restricted `swr` to sunlit columns, and vectorized `hdiffo`.
+- **Measured speedup:** T42 1-core `28.74 s → 16.85 s` (1.71× faster); T21 1-core `11.10 s → 7.27 s` (1.53× faster); T21 2-core MPI ~6 min/model-year. Verified `max_diff = 0.0` across `ts, pr, ntr, hfns, ohdf, ua, rst, rlut` between single-CPU symmetric and 2-core MPI `legmod` paths.
+
