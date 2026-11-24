@@ -258,6 +258,83 @@ def report(hist, window=10, criteria=None, yearseconds=360.0 * 86400.0):
     return "\n".join(lines)
 
 
+def capped_snow_runoff(filename, dsmax=5.0, tol=0.01):
+    """Separate liquid land runoff from artificial snow-cap overflow (ice export).
+
+    In ``landmod.f90``, land snow depth ``snd`` is capped at ``dsmax`` (default 5 m
+    water equivalent). Any snowfall beyond the cap is routed into ``mrro`` so water
+    is conserved, which makes capped nightside/terminator ice sheets appear as river
+    runoff. This diagnostic masks cells sitting at the snow cap so hydrology
+    pipelines can separate liquid discharge from ice export.
+
+    Parameters
+    ----------
+    filename : str
+        A postprocessed output file readable by :py:func:`exoplasim.gcmt.load`.
+    dsmax : float, optional
+        Land snow cap in metres of liquid water equivalent (default ``5.0``).
+    tol : float, optional
+        Tolerance below ``dsmax`` treated as capped (default ``0.01`` m).
+
+    Returns
+    -------
+    dict
+        ``capped_mask`` (bool ndarray, ``(nlat, nlon)``): land cells at the snow cap
+        in the annual mean (or any timestep if 3-D, with ``capped_fraction`` giving
+        the time-mean capped fraction per cell);
+        ``liquid_runoff`` (ndarray, m s-1): annual-mean ``mrro`` on uncapped land cells;
+        ``ice_export`` (ndarray, m s-1): annual-mean ``mrro`` on capped land cells;
+        ``capped_land_fraction`` (float): area-weighted fraction of land at the cap;
+        ``ice_export_share`` (float): fraction of total area-weighted land runoff
+        that comes from capped-snow cells (``0.0`` if total land runoff is zero).
+    """
+    data = gcmt.load(filename)
+    try:
+        lat = np.array(data.variables["lat"][:], dtype=float)
+        lsm_raw = np.array(data.variables["lsm"][:], dtype=float)
+        snd_raw = np.array(data.variables["snd"][:], dtype=float)
+        mrro_raw = np.array(data.variables["mrro"][:], dtype=float)
+    finally:
+        try:
+            data.close()
+        except Exception:
+            pass
+
+    lsm = lsm_raw.mean(axis=0) if lsm_raw.ndim == 3 else lsm_raw
+    land = lsm > 0.5
+    threshold = dsmax - tol
+
+    if snd_raw.ndim == 3 and mrro_raw.ndim == 3:
+        capped_t = land[None, :, :] & (snd_raw >= threshold)
+        liquid_runoff = np.where(land[None, :, :] & ~capped_t, mrro_raw, 0.0).mean(axis=0)
+        ice_export = np.where(capped_t, mrro_raw, 0.0).mean(axis=0)
+        capped_fraction = capped_t.mean(axis=0)
+        capped_mask = capped_fraction > 0.0
+    else:
+        snd = snd_raw.mean(axis=0) if snd_raw.ndim == 3 else snd_raw
+        mrro = mrro_raw.mean(axis=0) if mrro_raw.ndim == 3 else mrro_raw
+        capped_mask = land & (snd >= threshold)
+        capped_fraction = capped_mask.astype(float)
+        liquid_runoff = np.where(land & ~capped_mask, mrro, 0.0)
+        ice_export = np.where(capped_mask, mrro, 0.0)
+
+    weights = np.cos(np.radians(lat))[:, None] * np.ones(land.shape)
+    land_w = float((weights * land).sum())
+    capped_land_fraction = float((weights * capped_fraction).sum() / land_w) if land_w > 0.0 else 0.0
+    total_runoff = float((weights * (liquid_runoff + ice_export)).sum())
+    ice_export_total = float((weights * ice_export).sum())
+    ice_export_share = float(ice_export_total / total_runoff) if total_runoff > 0.0 else 0.0
+
+    return {
+        "capped_mask": capped_mask,
+        "capped_fraction": capped_fraction,
+        "liquid_runoff": liquid_runoff,
+        "ice_export": ice_export,
+        "capped_land_fraction": capped_land_fraction,
+        "ice_export_share": ice_export_share,
+    }
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("usage: python -m exoplasim.convergence WORKDIR [WINDOW]")

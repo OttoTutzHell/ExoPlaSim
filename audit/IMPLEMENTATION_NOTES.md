@@ -268,7 +268,7 @@ Star: Agol et al. 2021 values from the NASA Exoplanet Archive (2,566 K, 0.0898 M
 
 - Around TRAPPIST-1 the planet is about 8 K warmer than around Teegarden's Star at the same flux (265.8 K at 1,100 against 258.2 K at 1,091), because the redder light is absorbed more and reflected less.
 - 1,000 and 1,100 W/m² are settled. 1,200 W/m² is still warming with the sea ice retreating, as 1,300 was around Teegarden's Star.
-- The temperate window is between 1,100 and 1,200 W/m². By interpolation, about 1,150 W/m², a 4.99-day orbit at 0.0256 AU, should give land near 10 °C at 15–30° of sun and 30 °C at 30–60° with the warmest cell near 50 °C. That orbit has not been run.
+- The temperate window is between 1,100 and 1,200 W/m². By interpolation, about 1,150 W/m², a 4.99-day orbit at 0.0256 AU, should give land near 10 °C at 15–30° of sun and 30 °C at 30–60° with the warmest cell near 50 °C (tested at 5.0 days below).
 - **Orbital caveat.** 0.0256 AU lies between TRAPPIST-1 d (0.0223 AU, 4.05 d) and e (0.0293 AU, 6.10 d), about 6 mutual Hill radii from each by my estimate, against roughly 12 between d and e themselves. A seventh planet there would probably break the resonant chain. The consistent reading is that Ki-Engir is planet e moved inward, with e's own radius and gravity, which canon already matches.
 - Two faults found on the way and fixed: with a spectrum file, the 5,772 K reference in `mknirtab` was integrated on the wrong wavelength grid; and spectrum file paths longer than 80 characters were silently truncated.
 
