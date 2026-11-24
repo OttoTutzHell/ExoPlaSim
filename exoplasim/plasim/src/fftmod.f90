@@ -226,8 +226,8 @@
       j3 = j1
       j5 = j1 + la
 
-      do i=1,la
-         do l=1,lot
+      do l=1,lot
+         do i=1,la
          a0p2 = a(i   ,l) + a(i2+i,l)
          a1p3 = a(i1+i,l) + a(i3+i,l)
          c(   i,l) = a0p2 + a1p3
@@ -260,9 +260,9 @@
          c3=trigs(kd+1)
          s3=trigs(kd+2)
 
-         i=ibase+1
-         do j=1,la
-            do l=1,lot
+         do l=1,lot
+            do j=1,la
+            i = ibase + j
             a1p5 = c1 * a(i1+i,l) + s1 * a(i5+i,l)
             a2p6 = c2 * a(i2+i,l) + s2 * a(i6+i,l)
             a3p7 = c3 * a(i3+i,l) + s3 * a(i7+i,l)
@@ -286,7 +286,6 @@
             c(j5+j,l) = a3+b2
             c(j7+j,l) = a3-b2
             enddo
-            i=i+1
          enddo
 
         ibase=ibase+8*la
@@ -301,9 +300,9 @@
 450   continue
       if (j1 <= j2) then
          sin45=sqrt(0.5)
-         i=ibase+1
-         do j=1,la
-            do l=1,lot
+         do l=1,lot
+            do j=1,la
+            i = ibase + j
             a1p3 = sin45 * (a(i1+i,l) + a(i3+i,l))
             a1m3 = sin45 * (a(i1+i,l) - a(i3+i,l))
             c(j0+j,l) =  a(   i,l) + a1m3
@@ -311,7 +310,6 @@
             c(j4+j,l) = -a(i2+i,l) - a1p3
             c(j5+j,l) =  a(i2+i,l) - a1p3
             enddo
-            i=i+1
          enddo
       endif
       if (la == 1) then
@@ -331,43 +329,42 @@
 !     ================
 
       subroutine dfft8(a,c,n,lot)
-      real a(n*lot),c(n*lot)
+      real a(n,lot),c(n,lot)
       la = n / 8
       z  = 1.0 / n
       zsin45 = z * sqrt(0.5)
+      la2 = 2 * la
+      la3 = 3 * la
+      la4 = 4 * la
+      la5 = 5 * la
+      la6 = 6 * la
+      la7 = 7 * la
 
-      do i=0,la*lot-1
-         i0 = (i/la) * n + mod(i,la) + 1
-         i1 = i0 + la
-         i2 = i1 + la
-         i3 = i2 + la
-         i4 = i3 + la
-         i5 = i4 + la
-         i6 = i5 + la
-         i7 = i6 + la
-
-         a0p4 =  a(i0) + a(i4)
-         a1p5 =  a(i1) + a(i5)
-         a2p6 =  a(i2) + a(i6)
-         a3p7 =  a(i3) + a(i7)
-         a5m1 =  a(i5) - a(i1)
-         a7m3 =  a(i7) - a(i3)
-         a0m4 = (a(i0) - a(i4)) * z
-         a6m2 = (a(i6) - a(i2)) * z
+      do l=1,lot
+         do j=1,la
+         a0p4 =  a(j    ,l) + a(j+la4,l)
+         a1p5 =  a(j+la ,l) + a(j+la5,l)
+         a2p6 =  a(j+la2,l) + a(j+la6,l)
+         a3p7 =  a(j+la3,l) + a(j+la7,l)
+         a5m1 =  a(j+la5,l) - a(j+la ,l)
+         a7m3 =  a(j+la7,l) - a(j+la3,l)
+         a0m4 = (a(j    ,l) - a(j+la4,l)) * z
+         a6m2 = (a(j+la6,l) - a(j+la2,l)) * z
 
          a0p4p2p6 = a0p4 + a2p6
          a1p5p3p7 = a1p5 + a3p7
          a7m3p5m1 = (a7m3 + a5m1) * zsin45
          a7m3m5m1 = (a7m3 - a5m1) * zsin45
 
-         c(i0) = z * (a0p4p2p6 + a1p5p3p7)
-         c(i7) = z * (a0p4p2p6 - a1p5p3p7)
-         c(i3) = z * (a0p4 - a2p6)
-         c(i4) = z * (a3p7 - a1p5)
-         c(i1) = a0m4 + a7m3m5m1
-         c(i5) = a0m4 - a7m3m5m1
-         c(i2) = a7m3p5m1 + a6m2
-         c(i6) = a7m3p5m1 - a6m2
+         c(j    ,l) = z * (a0p4p2p6 + a1p5p3p7)
+         c(j+la7,l) = z * (a0p4p2p6 - a1p5p3p7)
+         c(j+la3,l) = z * (a0p4 - a2p6)
+         c(j+la4,l) = z * (a3p7 - a1p5)
+         c(j+la ,l) = a0m4 + a7m3m5m1
+         c(j+la5,l) = a0m4 - a7m3m5m1
+         c(j+la2,l) = a7m3p5m1 + a6m2
+         c(j+la6,l) = a7m3p5m1 - a6m2
+         enddo
       enddo
       return
       end subroutine dfft8
@@ -401,8 +398,8 @@
       j6 = la+j5
       j7 = la+j6
 
-      do i=1,la
       do l=1,lot
+      do i=1,la
          c(   i,l) = a(i,l) + a(i2+i,l) + a(i1+i,l)
          c(j1+i,l) = a(i,l) - a(i2+i,l) - a(i5+i,l)
          c(j2+i,l) = a(i,l) + a(i2+i,l) - a(i1+i,l)
@@ -411,7 +408,7 @@
       enddo
 
       iink  = 2 * la
-      jbase = 4 * la + 1
+      jbase = 4 * la
       i0    = la
       i1    = i0 + n/2
       i2    = n - 3 * la
@@ -431,9 +428,9 @@
         s2=trigs(kc+2)
         c3=trigs(kd+1)
         s3=trigs(kd+2)
-        do i = 1 , la
-           j = jbase
-           do l=1,lot
+        do l=1,lot
+           do i = 1 , la
+           j = jbase + i
            a0p2 = a(i0+i,l) + a(i2+i,l)
            a0m2 = a(i0+i,l) - a(i2+i,l)
            a1p3 = a(i1+i,l) + a(i3+i,l)
@@ -455,7 +452,6 @@
            c(j3+j,l) = c3*(a0m2+a5p7)-s3*(a4p6-a1m3)
            c(j7+j,l) = s3*(a0m2+a5p7)+c3*(a4p6-a1m3)
            enddo
-           jbase=jbase+1
         enddo
         i0 = i0 + iink
         i1 = i1 + iink
@@ -465,20 +461,19 @@
         i5 = i5 + iink
         i6 = i6 - iink
         i7 = i7 - iink
-        jbase=jbase+7*la
+        jbase=jbase+8*la
 450     continue
 
       if (i1 <= i2) then
          sin45=sqrt(0.5)
-         do i=1,la
-            j=jbase
-            do l=1,lot
+         do l=1,lot
+            do i=1,la
+            j=jbase+i
             c(   j,l)=a(i0+i,l)+a(i1+i,l)
             c(j1+j,l)=sin45*((a(i0+i,l)-a(i1+i,l))-(a(la+i0+i,l)+a(la+i1+i,l)))
             c(j2+j,l)=a(la+i1+i,l)-a(la+i0+i,l)
             c(j3+j,l)=-sin45*((a(i0+i,l)-a(i1+i,l))+(a(la+i0+i,l)+a(la+i1+i,l)))
             enddo
-            jbase=jbase+1
          enddo
       endif
       la = la * 4
@@ -577,42 +572,41 @@
 
       subroutine ifft8(a,c,n,lot)
       parameter(SQRT2 = 1.414213562373095D0)
-      dimension a(n*lot),c(n*lot)
+      dimension a(n,lot),c(n,lot)
       la = n / 8
+      la2 = 2 * la
+      la3 = 3 * la
+      la4 = 4 * la
+      la5 = 5 * la
+      la6 = 6 * la
+      la7 = 7 * la
 
-      do i=0,la*lot-1
-         i0 = (i/la) * n + mod(i,la) + 1
-         i1 = i0 + la
-         i2 = i1 + la
-         i3 = i2 + la
-         i4 = i3 + la
-         i5 = i4 + la
-         i6 = i5 + la
-         i7 = i6 + la
+      do l=1,lot
+         do j=1,la
+         a0p7 = a(j    ,l) + a(j+la7,l)
+         a0m7 = a(j    ,l) - a(j+la7,l)
+         a1p5 = a(j+la ,l) + a(j+la5,l)
+         a1m5 = a(j+la ,l) - a(j+la5,l)
+         a2p6 = a(j+la2,l) + a(j+la6,l)
+         a2m6 = a(j+la2,l) - a(j+la6,l)
 
-         a0p7 = a(i0) + a(i7)
-         a0m7 = a(i0) - a(i7)
-         a1p5 = a(i1) + a(i5)
-         a1m5 = a(i1) - a(i5)
-         a2p6 = a(i2) + a(i6)
-         a2m6 = a(i2) - a(i6)
-
-         a0p7p3   = a0p7 + a(i3)
-         a0p7m3   = a0p7 - a(i3)
-         a0m7p4   = 2.0 * (a0m7 + a(i4))
-         a0m7m4   = 2.0 * (a0m7 - a(i4))
+         a0p7p3   = a0p7 + a(j+la3,l)
+         a0p7m3   = a0p7 - a(j+la3,l)
+         a0m7p4   = 2.0 * (a0m7 + a(j+la4,l))
+         a0m7m4   = 2.0 * (a0m7 - a(j+la4,l))
          a1m5p2p6 = SQRT2 * (a1m5 + a2p6)
          a1m5m2p6 = SQRT2 * (a1m5 - a2p6)
 
-         c(i0)  = 2.0 * (a0p7p3 + a1p5)
-         c(i2)  = 2.0 * (a0p7m3 - a2m6)
-         c(i4)  = 2.0 * (a0p7p3 - a1p5)
-         c(i6)  = 2.0 * (a0p7m3 + a2m6)
+         c(j    ,l) = 2.0 * (a0p7p3 + a1p5)
+         c(j+la2,l) = 2.0 * (a0p7m3 - a2m6)
+         c(j+la4,l) = 2.0 * (a0p7p3 - a1p5)
+         c(j+la6,l) = 2.0 * (a0p7m3 + a2m6)
 
-         c(i1)  = a0m7m4 + a1m5m2p6
-         c(i3)  = a0m7p4 - a1m5p2p6
-         c(i5)  = a0m7m4 - a1m5m2p6
-         c(i7)  = a0m7p4 + a1m5p2p6
+         c(j+la ,l) = a0m7m4 + a1m5m2p6
+         c(j+la3,l) = a0m7p4 - a1m5p2p6
+         c(j+la5,l) = a0m7m4 - a1m5m2p6
+         c(j+la7,l) = a0m7p4 + a1m5p2p6
+         enddo
       enddo
       return
       end

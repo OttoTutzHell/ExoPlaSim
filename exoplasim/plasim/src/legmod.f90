@@ -262,28 +262,54 @@ implicit none
 real :: sp(2,NCSP)        ! Coefficients of spherical harmonics
 real :: fc(2,NLON/2,NLPP) ! Fourier coefficients
 
+integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
 integer :: w, w0, w1 ! Loop index for spectral mode
-real :: f1, f2
+real :: f1, f2, f1s, f2s, f1a, f2a
 
 fc(:,:,:) = 0.0
 
-do l = 1 , NLPP
-   w0 = 1
-   do m = 1 , NTP1
-      w1 = w0 + NTP1 - m
-      f1 = 0.0
-      f2 = 0.0
-      do w = w0 , w1
-         f1 = f1 + qi(w,l) * sp(1,w)
-         f2 = f2 + qi(w,l) * sp(2,w)
-      enddo ! w
-      fc(1,m,l) = f1
-      fc(2,m,l) = f2
-      w0 = w1 + 1
-   enddo ! m
-enddo ! l
+if (NLPP < NLAT) then
+   do l = 1 , NLPP
+      w0 = 1
+      do m = 1 , NTP1
+         w1 = w0 + NTP1 - m
+         f1 = 0.0
+         f2 = 0.0
+         do w = w0 , w1
+            f1 = f1 + qi(w,l) * sp(1,w)
+            f2 = f2 + qi(w,l) * sp(2,w)
+         enddo ! w
+         fc(1,m,l) = f1
+         fc(2,m,l) = f2
+         w0 = w1 + 1
+      enddo ! m
+   enddo ! l
+else
+   do l = 1 , NLAT/2
+      k = NLAT + 1 - l
+      w0 = 1
+      do m = 1 , NTP1
+         w1 = w0 + NTP1 - m
+         f1s = 0.0; f2s = 0.0
+         f1a = 0.0; f2a = 0.0
+         do w = w0 , w1 , 2
+            f1s = f1s + qi(w,l) * sp(1,w)
+            f2s = f2s + qi(w,l) * sp(2,w)
+         enddo
+         do w = w0 + 1 , w1 , 2
+            f1a = f1a + qi(w,l) * sp(1,w)
+            f2a = f2a + qi(w,l) * sp(2,w)
+         enddo
+         fc(1,m,l) = f1s + f1a
+         fc(2,m,l) = f2s + f2a
+         fc(1,m,k) = f1s - f1a
+         fc(2,m,k) = f2s - f2a
+         w0 = w1 + 1
+      enddo ! m
+   enddo ! l
+endif
 return
 end
 
@@ -299,28 +325,54 @@ implicit none
 real :: sp(2,NCSP)        ! Coefficients of spherical harmonics
 real :: fc(2,NLON/2,NLPP) ! Fourier coefficients
 
+integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
 integer :: w, w0, w1 ! Loop index for spectral mode
-real :: f1, f2
+real :: f1, f2, f1s, f2s, f1a, f2a
 
 fc(:,:,:) = 0.0
 
-do l = 1 , NLPP
-   w0 = 1
-   do m = 1 , NTP1
-      w1 = w0 + NTP1 - m
-      f1 = 0.0
-      f2 = 0.0
-      do w = w0 , w1
-         f1 = f1 + qj(w,l) * sp(1,w)
-         f2 = f2 + qj(w,l) * sp(2,w)
-      enddo ! w
-      fc(1,m,l) = f1
-      fc(2,m,l) = f2
-      w0 = w1 + 1
-   enddo ! m
-enddo ! l
+if (NLPP < NLAT) then
+   do l = 1 , NLPP
+      w0 = 1
+      do m = 1 , NTP1
+         w1 = w0 + NTP1 - m
+         f1 = 0.0
+         f2 = 0.0
+         do w = w0 , w1
+            f1 = f1 + qj(w,l) * sp(1,w)
+            f2 = f2 + qj(w,l) * sp(2,w)
+         enddo ! w
+         fc(1,m,l) = f1
+         fc(2,m,l) = f2
+         w0 = w1 + 1
+      enddo ! m
+   enddo ! l
+else
+   do l = 1 , NLAT/2
+      k = NLAT + 1 - l
+      w0 = 1
+      do m = 1 , NTP1
+         w1 = w0 + NTP1 - m
+         f1a = 0.0; f2a = 0.0
+         f1s = 0.0; f2s = 0.0
+         do w = w0 , w1 , 2
+            f1a = f1a + qj(w,l) * sp(1,w)
+            f2a = f2a + qj(w,l) * sp(2,w)
+         enddo
+         do w = w0 + 1 , w1 , 2
+            f1s = f1s + qj(w,l) * sp(1,w)
+            f2s = f2s + qj(w,l) * sp(2,w)
+         enddo
+         fc(1,m,l) = f1s + f1a
+         fc(2,m,l) = f2s + f2a
+         fc(1,m,k) = f1s - f1a
+         fc(2,m,k) = f2s - f2a
+         w0 = w1 + 1
+      enddo ! m
+   enddo ! l
+endif
 return
 end
 
@@ -355,8 +407,10 @@ real :: pd(2,NESP/2,NLEV)
 real :: pz(2,NESP/2,NLEV)
 real :: pu(2,NLON/2,NLPP,NLEV)
 real :: pv(2,NLON/2,NLPP,NLEV)
-real :: zsave, u1, u2, v1, v2
+real :: zsave(NLEV), u1, u2, v1, v2
+real :: u1s, u2s, v1s, v2s, u1a, u2a, v1a, v2a
 
+integer :: k ! Loop index for southern latitude
 integer :: l ! Loop index for latitude
 integer :: m ! Loop index for zonal wavenumber m
 integer :: v ! Loop index for level
@@ -366,31 +420,76 @@ pu(:,:,:,:) = 0.0
 pv(:,:,:,:) = 0.0
 
 do v = 1 , NLEV
-  zsave = pz(1,2,v)
-  pz(1,2,v) = zsave - plavor
+  zsave(v) = pz(1,2,v)
+  pz(1,2,v) = zsave(v) - plavor
+enddo
+
+if (NLPP < NLAT) then
   do l = 1 , NLPP
-    w0 = 1
-    do m = 1 , NTP1
-      w1 = w0 + NTP1 - m
-      u1 = 0.0
-      u2 = 0.0
-      v1 = 0.0
-      v2 = 0.0
-      do w = w0 , w1
-        u1 = u1 + qv(w,l)*pz(1,w,v) + qu(w,l)*pd(2,w,v)
-        u2 = u2 + qv(w,l)*pz(2,w,v) - qu(w,l)*pd(1,w,v)
-        v1 = v1 + qu(w,l)*pz(2,w,v) - qv(w,l)*pd(1,w,v)
-        v2 = v2 - qu(w,l)*pz(1,w,v) - qv(w,l)*pd(2,w,v)
-      enddo ! w
-      pu(1,m,l,v) = u1
-      pu(2,m,l,v) = u2
-      pv(1,m,l,v) = v1
-      pv(2,m,l,v) = v2
-      w0 = w1 + 1
-    enddo ! m
+    do v = 1 , NLEV
+      w0 = 1
+      do m = 1 , NTP1
+        w1 = w0 + NTP1 - m
+        u1 = 0.0
+        u2 = 0.0
+        v1 = 0.0
+        v2 = 0.0
+        do w = w0 , w1
+          u1 = u1 + qv(w,l)*pz(1,w,v) + qu(w,l)*pd(2,w,v)
+          u2 = u2 + qv(w,l)*pz(2,w,v) - qu(w,l)*pd(1,w,v)
+          v1 = v1 + qu(w,l)*pz(2,w,v) - qv(w,l)*pd(1,w,v)
+          v2 = v2 - qu(w,l)*pz(1,w,v) - qv(w,l)*pd(2,w,v)
+        enddo ! w
+        pu(1,m,l,v) = u1
+        pu(2,m,l,v) = u2
+        pv(1,m,l,v) = v1
+        pv(2,m,l,v) = v2
+        w0 = w1 + 1
+      enddo ! m
+    enddo ! v
   enddo ! l
-  pz(1,2,v) = zsave
-enddo ! jv
+else
+  do l = 1 , NLAT/2
+    k = NLAT + 1 - l
+    do v = 1 , NLEV
+      w0 = 1
+      do m = 1 , NTP1
+        w1 = w0 + NTP1 - m
+        u1s = 0.0; u2s = 0.0; v1s = 0.0; v2s = 0.0
+        u1a = 0.0; u2a = 0.0; v1a = 0.0; v2a = 0.0
+        do w = w0 , w1 , 2
+          u1s = u1s + qu(w,l)*pd(2,w,v)
+          u1a = u1a + qv(w,l)*pz(1,w,v)
+          u2s = u2s - qu(w,l)*pd(1,w,v)
+          u2a = u2a + qv(w,l)*pz(2,w,v)
+          v1s = v1s + qu(w,l)*pz(2,w,v)
+          v1a = v1a - qv(w,l)*pd(1,w,v)
+          v2s = v2s - qu(w,l)*pz(1,w,v)
+          v2a = v2a - qv(w,l)*pd(2,w,v)
+        enddo
+        do w = w0 + 1 , w1 , 2
+          u1s = u1s + qv(w,l)*pz(1,w,v)
+          u1a = u1a + qu(w,l)*pd(2,w,v)
+          u2s = u2s + qv(w,l)*pz(2,w,v)
+          u2a = u2a - qu(w,l)*pd(1,w,v)
+          v1s = v1s - qv(w,l)*pd(1,w,v)
+          v1a = v1a + qu(w,l)*pz(2,w,v)
+          v2s = v2s - qv(w,l)*pd(2,w,v)
+          v2a = v2a - qu(w,l)*pz(1,w,v)
+        enddo
+        pu(1,m,l,v) = u1s + u1a; pu(1,m,k,v) = u1s - u1a
+        pu(2,m,l,v) = u2s + u2a; pu(2,m,k,v) = u2s - u2a
+        pv(1,m,l,v) = v1s + v1a; pv(1,m,k,v) = v1s - v1a
+        pv(2,m,l,v) = v2s + v2a; pv(2,m,k,v) = v2s - v2a
+        w0 = w1 + 1
+      enddo ! m
+    enddo ! v
+  enddo ! l
+endif
+
+do v = 1 , NLEV
+  pz(1,2,v) = zsave(v)
+enddo
 return
 end
 
